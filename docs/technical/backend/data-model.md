@@ -2,7 +2,7 @@
 
 PostgreSQL, owned by Flyway.
 
-## Entity relationships
+## :material-sitemap: Entity relationships
 
 ```mermaid
 erDiagram
