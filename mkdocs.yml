@@ -1,35 +1,9 @@
 site_name: Beyond the Gate Wiki
-site_description: Game design and technical documentation for Beyond the Gate.
+site_description: Game design, Features, Technical Documentation
 site_url: https://beyond-the-gate.github.io/btg-wiki/
 repo_url: https://github.com/Beyond-The-Gate/btg-wiki
 repo_name: Beyond-The-Gate/btg-wiki
 edit_uri: edit/main/docs/
-
-theme:
-  name: material
-  logo: assets/logo.png
-  favicon: assets/favicon.png
-  palette:
-    - media: "(prefers-color-scheme: light)"
-      scheme: default
-      toggle:
-        icon: material/weather-night
-        name: Switch to dark mode
-    - media: "(prefers-color-scheme: dark)"
-      scheme: slate
-      toggle:
-        icon: material/weather-sunny
-        name: Switch to light mode
-  features:
-    - navigation.tabs
-    - navigation.sections
-    - navigation.top
-    - navigation.instant
-    - navigation.footer
-    - toc.follow
-    - search.suggest
-    - search.highlight
-    - content.code.copy
 
 extra_css:
   - stylesheets/extra.css
@@ -72,12 +46,56 @@ markdown_extensions:
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
 
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/favicon.png
+  font:
+    text: Inter
+    code: JetBrains Mono
+  icon:
+    repo: fontawesome/brands/github
+    edit: material/pencil
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - navigation.instant.progress
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.action.edit
+    - content.tabs.link
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Beyond-The-Gate
+      name: GitHub
+
 nav:
   - Home: index.md
   - Game Design:
-      - Overview: game-design/index.md
+      - game-design/index.md
   - Systems:
-      - Overview: systems/index.md
+      - systems/index.md
   - Technical:
-      - Overview: technical/index.md
+      - technical/index.md
       - Backend: technical/backend.md
