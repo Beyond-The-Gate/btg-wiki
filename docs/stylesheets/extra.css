@@ -1,29 +1,35 @@
 [data-md-color-scheme="slate"] {
-  /* black surfaces */
-  --md-default-bg-color: #0d0d0d;
-  --md-default-fg-color: #e6e6e6;
-  --md-default-fg-color--light: #b3b3b3;
-  --md-default-fg-color--lighter: #808080;
-  --md-default-fg-color--lightest: #2a2a2a;
-  --md-code-bg-color: #161616;
+  /* soft dark grey surfaces */
+  --md-default-bg-color: #22262b;
+  --md-default-fg-color: #e3e3e3;
+  --md-default-fg-color--light: #b8bcc2;
+  --md-default-fg-color--lighter: #8a8f96;
+  --md-default-fg-color--lightest: #3a3f46;
+  --md-code-bg-color: #2a2f36;
 
-  /* orange brand */
-  --md-primary-fg-color: #ff7a00;
-  --md-primary-fg-color--light: #ff9a33;
-  --md-primary-fg-color--dark: #cc6200;
+  /* pastel orange brand */
+  --md-primary-fg-color: #f0a868;
+  --md-primary-fg-color--light: #f6c08c;
+  --md-primary-fg-color--dark: #d98e4e;
 
-  /* gold highlight */
-  --md-accent-fg-color: #ffd000;
-  --md-typeset-a-color: #ff7a00;
+  /* pastel gold highlight */
+  --md-accent-fg-color: #f2c97a;
+  --md-typeset-a-color: #f0a868;
 }
 
-/* Black header + footer (keep light text/icons) */
+/* Header + footer slightly darker than the page */
 .md-header,
 .md-footer {
-  background-color: #000;
+  background-color: #1c2025;
 }
 
-/* Links: orange, gold on hover */
+/* Active tab / nav item in pastel gold */
+.md-tabs__link--active,
+.md-nav__link--active {
+  color: var(--md-accent-fg-color);
+}
+
+/* Links: pastel orange, gold on hover */
 .md-typeset a {
   color: var(--md-primary-fg-color);
 }
@@ -31,13 +37,13 @@
   color: var(--md-accent-fg-color);
 }
 
-/* Text selection in gold */
+/* Selection in pastel gold */
 ::selection {
   background: var(--md-accent-fg-color);
-  color: #000;
+  color: #1c2025;
 }
 
-/* Cards: rounded, gold lift on hover */
+/* Cards: rounded, gentle lift on hover */
 .md-typeset .grid.cards > ul > li {
   border-radius: 0.7rem;
   border: 1px solid var(--md-default-fg-color--lightest);
@@ -47,17 +53,17 @@
 .md-typeset .grid.cards > ul > li:hover {
   transform: translateY(-3px);
   border-color: var(--md-accent-fg-color);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
 }
 
-/* Primary buttons: orange with dark text, gold on hover */
+/* Primary buttons: pastel orange, gold on hover */
 .md-typeset .md-button--primary {
   background-color: var(--md-primary-fg-color);
   border-color: var(--md-primary-fg-color);
-  color: #0d0d0d;
+  color: #1c2025;
 }
 .md-typeset .md-button--primary:hover {
   background-color: var(--md-accent-fg-color);
   border-color: var(--md-accent-fg-color);
-  color: #0d0d0d;
+  color: #1c2025;
 }
