@@ -3,7 +3,7 @@
 !!! warning "Authentication is not yet enforced"
     A temporary permit-all configuration is active in development. Do **not** deploy publicly until role-based security (`ROLE_SERVICE` / `ROLE_PLAYER`) is in place.
 
-## Conventions
+## :material-information-outline: Conventions
 
 | | |
 |---|---|
@@ -29,7 +29,7 @@
 
 ---
 
-## Players
+## :material-account: Players
 
 ### Join
 
@@ -118,7 +118,7 @@ Same as above, resolved by current name.
 
 ---
 
-## Dungeons
+## :material-castle: Dungeons
 
 ### Get dungeon
 
@@ -308,7 +308,7 @@ Toggles the door only — gate and modifiers are **kept**.
 
 ---
 
-## Friends
+## :material-account-group: Friends
 
 !!! info "Events"
     Every mutation publishes a JSON event to the `btg.events` topic exchange **after the DB commit**, so other services can update both parties' menus. See [Events](#events).
@@ -425,7 +425,7 @@ Removes an existing friendship.
 
 ---
 
-## Collections
+## :material-trophy: Collections
 
 Player progression against the static [collection catalog](../data-model/#collections). A progress row exists only once tracked (amount ≠ 0).
 
@@ -520,7 +520,7 @@ Adds an amount to a collection (creating the row on first track). The key is val
 
 ---
 
-## Events
+## :material-rabbit: Events
 
 Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JSON; each carries both players (uuid + name) so consumers can render without a lookup.
 
@@ -534,7 +534,7 @@ Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JS
 
 ---
 
-## Schemas
+## :material-code-braces: Schemas
 
 ### PlayerJoinResponse
 | Field | Type | Notes |
