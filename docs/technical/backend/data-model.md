@@ -23,6 +23,9 @@ erDiagram
     DUNGEON ||--o{ DUNGEONROOM : "has rooms"
     DUNGEON ||--o{ DUNGEONCITIZEN : "has citizens"
     DUNGEON ||--o{ DUNGEONCOMPLETEDGATE : "has completed"
+    CATALOGCOLLECTIONCATEGORY ||--o{ CATALOGCOLLECTION : "contains"
+    CATALOGCOLLECTION ||--o{ CATALOGCOLLECTIONLEVEL : "has levels"
+    CATALOGCOLLECTION ||--o{ PLAYERCOLLECTION : "tracked by"
 
     PLAYER {
         uuid uuid PK
@@ -63,12 +66,6 @@ erDiagram
         bigint completion_count
         timestamp first_completed_at
     }
-    PLAYERCOLLECTION {
-        uuid player_uuid PK,FK
-        string category
-        string type PK
-        long amount
-    }
     DUNGEONROOM {
         uuid dungeon_uuid PK,FK
         string room PK
@@ -101,5 +98,31 @@ erDiagram
         string reason
         timestamp expires_at
         timestamp created_at
+    }
+    CATALOGCOLLECTIONCATEGORY {
+        string id PK
+        string name
+        string description
+        string icon
+        int display_order
+    }
+    CATALOGCOLLECTION {
+        string key PK
+        string category_id FK
+        string name
+        string description
+        string icon
+        int display_order
+    }
+    CATALOGCOLLECTIONLEVEL {
+        string collection_key PK,FK
+        int level PK
+        long required_amount
+        string reward_description
+    }
+    PLAYERCOLLECTION {
+        uuid player_uuid PK,FK
+        string collection_key PK,FK
+        long amount
     }
 ```
