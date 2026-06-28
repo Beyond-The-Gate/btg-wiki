@@ -28,4 +28,3 @@ Read on:
 - **[Architecture](architecture.md)** — stack, modules, layers, conventions
 - **[Data Model](data-model.md)** — tables, keys, design decisions
 - **[API Layer](api.md)** — endpoints, error model, events
-- **[Logical Flows](flows.md)** — how the key operations actually work
