@@ -59,6 +59,7 @@ theme:
   palette:
     scheme: slate
   features:
+    - navigation.tabs
     - navigation.sections
     - navigation.indexes
     - navigation.top
