@@ -1,687 +1,658 @@
-# API Layer
+# API Reference
 
-Reference for the backend's HTTP API. All endpoints are on the **`/game/**`** surface (Minecraft servers).
+!!! warning "Authentication is not yet enforced"
+    A temporary permit-all configuration is active in development. Do **not** deploy publicly until role-based security (`ROLE_SERVICE` / `ROLE_PLAYER`) is in place.
 
 ## Conventions
 
-- **Content type:** `application/json` for requests and responses.
-- **Acting player:** identified by `{uuid}` in the path (becomes the JWT subject on `/web/**` later).
-- **Timestamps:** ISO-8601 in UTC (e.g. `2026-06-28T10:00:00Z`).
-- **UUIDs:** canonical string form (e.g. `00000000-0000-0000-0000-000000000001`).
-- **Names are nullable** everywhere they appear (cached Minecraft names can be temporarily unknown).
-
-### Error model
-
-Errors return an [`ApiError`](#apierror) body with the matching status:
-
-| Status | Thrown when |
+| | |
 |---|---|
-| `400 Bad Request` | invalid input (e.g. friending yourself) |
-| `404 Not Found` | the target entity/row doesn't exist |
-| `409 Conflict` | state conflict (e.g. already friends) |
+| **Base URL** | `http://<host>:8080` |
+| **Content type** | `application/json` (request & response) |
+| **Timestamps** | ISO-8601, UTC — e.g. `2026-06-28T10:57:48.855Z` |
+| **IDs** | Players & dungeons use UUIDs; collections, gates, rooms, citizens, modifiers use string keys |
 
-```json
-{ "status": 404, "message": "Player 00000000-0000-0000-0000-000000000001 not found" }
-```
+??? abstract "Error format & status codes"
+    Every error shares one shape:
+
+    ```json
+    { "status": 404, "message": "Player '...' not found" }
+    ```
+
+    | Code | Meaning |
+    |---|---|
+    | `200` | OK, body returned |
+    | `204` | OK, no body |
+    | `400` | Invalid input / business rule violated |
+    | `404` | Target not found |
+    | `409` | Conflict (duplicate / already in desired state) |
 
 ---
 
 ## Players
 
-### Register on join
+### Join
 
-`POST /game/players/{uuid}/join`
-
-Creates the player on first join, or refreshes their name and last-seen on subsequent joins. Returns the profile plus any active punishments the proxy must enforce.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Player UUID |
-
-**Request body** — [`PlayerJoinRequest`](#playerjoinrequest)
-
-```json
-{ "name": "Steve" }
+```http
+POST /game/players/{uuid}/join
 ```
 
-**Responses**
+Upserts the player on connect: creates them on first join, otherwise refreshes name + `last_seen`, reclaiming the name from any stale holder. Returns the player and any active punishments.
 
-`200 OK` — [`PlayerJoinResponse`](#playerjoinresponse)
-
-```json
-{
-  "player": {
-    "uuid": "00000000-0000-0000-0000-000000000001",
-    "name": "Steve",
-    "firstSeen": "2026-06-28T10:00:00Z",
-    "lastSeen": "2026-06-28T10:00:00Z",
-    "playtime": 0
-  },
-  "activePunishments": []
-}
-```
-
----
-
-### Record quit
-
-`POST /game/players/{uuid}/quit`
-
-Adds the elapsed session time to the player's total playtime and resets last-seen. Call on disconnect.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Player UUID |
-
-**Responses**
-
-`204 No Content`
-
----
-
-### Get playtime (by uuid)
-
-`GET /game/players/{uuid}/playtime`
-
-Returns total playtime in **milliseconds**, accurate to now.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Player UUID |
-
-**Query parameters**
-
-| Name | Type | Required | Description |
+| Param | In | Type | Description |
 |---|---|---|---|
-| `online` | boolean | yes | `true` adds the live session delta since last-seen; `false` returns the stored value |
+| `uuid` | path | UUID | Minecraft player UUID |
 
-**Responses**
+=== "Request"
 
-`200 OK` — [`PlaytimeResponse`](#playtimeresponse)
+    ```json
+    { "name": "Steve" }
+    ```
 
-```json
-{ "playtime": 12493 }
-```
+=== "Response `200`"
 
-`404 Not Found` — unknown player.
+    [`PlayerJoinResponse`](#playerjoinresponse)
+
+    ```json
+    {
+      "player": {
+        "uuid": "…", "name": "Steve",
+        "firstSeen": "…", "lastSeen": "…", "playtime": 0
+      },
+      "activePunishments": [
+        { "type": "BAN", "reason": "…", "expiresAt": null }
+      ]
+    }
+    ```
 
 ---
 
-### Get playtime (by name)
+### Quit
 
-`GET /game/players/by-name/{name}/playtime`
+```http
+POST /game/players/{uuid}/quit
+```
 
-Same as above, keyed by current name.
+Adds the elapsed session time to `playtime` and resets `last_seen`. The delta is computed in the database for clock-consistency.
 
-**Path parameters**
+**Responses:** `204` no content
 
-| Name | Type | Description |
-|---|---|---|
-| `name` | string | Current Minecraft name |
+---
 
-**Query parameters**
+### Get playtime by UUID
 
-| Name | Type | Required | Description |
+```http
+GET /game/players/{uuid}/playtime?online={bool}
+```
+
+Current playtime in **milliseconds**.
+
+| Param | In | Type | Description |
 |---|---|---|---|
-| `online` | boolean | yes | See above |
+| `uuid` | path | UUID | Player UUID |
+| `online` | query | boolean | `true` adds the live, in-progress session; `false` returns the stored value |
 
-**Responses**
+=== "Response `200`"
 
-`200 OK` — [`PlaytimeResponse`](#playtimeresponse) · `404 Not Found` — unknown name.
+    [`PlaytimeResponse`](#playtimeresponse)
+
+    ```json
+    { "playtime": 977847 }
+    ```
+
+=== "Errors"
+
+    `404` — unknown player
+
+---
+
+### Get playtime by name
+
+```http
+GET /game/players/by-name/{name}/playtime?online={bool}
+```
+
+Same as above, resolved by current name.
+
+**Responses:** `200` → [`PlaytimeResponse`](#playtimeresponse) · `404` no player holds that name
 
 ---
 
 ## Dungeons
 
-### Get a dungeon
+### Get dungeon
 
-`GET /game/dungeons/{dungeonUuid}`
+```http
+GET /game/dungeons/{dungeonUuid}
+```
 
-Returns the full dungeon aggregate.
+Full dungeon aggregate by its own UUID.
 
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `dungeonUuid` | uuid | The dungeon's own UUID |
-
-**Responses**
-
-`200 OK` — [`DungeonDto`](#dungeondto) · `404 Not Found`.
+**Responses:** `200` → [`DungeonDto`](#dungeondto) · `404` unknown dungeon
 
 ---
 
 ### Get-or-create the player's dungeon
 
-`POST /game/players/{playerUuid}/dungeon`
-
-Ensures the player has a dungeon and returns it. On first creation, seeds a `"main"` room. Idempotent — repeated calls return the same dungeon.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `playerUuid` | uuid | The owning player |
-
-**Responses**
-
-`200 OK` — [`DungeonDto`](#dungeondto)
-
-```json
-{
-  "uuid": "11111111-1111-1111-1111-111111111111",
-  "ownerUuid": "00000000-0000-0000-0000-000000000001",
-  "doorOpen": false,
-  "gate": null,
-  "gateModifiers": [],
-  "members": [],
-  "rooms": [{ "name": "main", "level": 1 }],
-  "citizens": [],
-  "completedGates": []
-}
+```http
+POST /game/players/{playerUuid}/dungeon
 ```
+
+Returns the player's dungeon, creating it (seeded with a default `main` room) on first call. Idempotent — repeated calls return the same dungeon. `POST` because it may create.
+
+=== "Response `200`"
+
+    [`DungeonDto`](#dungeondto)
+
+    ```json
+    {
+      "uuid": "…", "ownerUuid": "…", "doorOpen": false, "gate": null,
+      "gateModifiers": [], "members": [],
+      "rooms": [ { "name": "main", "level": 1 } ],
+      "citizens": [], "completedGates": []
+    }
+    ```
 
 ---
 
 ### List accessible dungeons
 
-`GET /game/players/{playerUuid}/dungeons`
-
-Summaries of every dungeon the player **owns or is trusted in** (their own included). Never creates.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `playerUuid` | uuid | The player |
-
-**Responses**
-
-`200 OK` — array of [`DungeonSummaryDto`](#dungeonsummarydto)
-
-```json
-[
-  {
-    "uuid": "11111111-1111-1111-1111-111111111111",
-    "ownerUuid": "00000000-0000-0000-0000-000000000001",
-    "ownerName": "Steve"
-  }
-]
+```http
+GET /game/players/{playerUuid}/dungeons
 ```
+
+Summaries of every dungeon the player **owns or is trusted in** (includes their own). Never creates.
+
+=== "Response `200`"
+
+    array of [`DungeonSummaryDto`](#dungeonsummarydto)
+
+    ```json
+    [ { "uuid": "…", "ownerUuid": "…", "ownerName": "Steve" } ]
+    ```
 
 ---
 
-### Trust a member
+### Trust a player
 
-`POST /game/dungeons/{dungeonUuid}/members/{playerUuid}`
-
-Adds a trusted player who may enter the dungeon. Returns the updated member list.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `dungeonUuid` | uuid | The dungeon |
-| `playerUuid` | uuid | Player to trust |
-
-**Responses**
-
-`200 OK` — array of member UUIDs
-
-```json
-["22222222-2222-2222-2222-222222222222"]
+```http
+POST /game/dungeons/{dungeonUuid}/members/{playerUuid}
 ```
 
-`400 Bad Request` — the owner cannot be trusted · `409 Conflict` — already trusted · `404 Not Found` — dungeon missing.
+Adds a trusted member. Returns the updated member UUID list.
+
+**Responses:** `200` → `string[]` (member UUIDs) · `400` target is the owner · `409` already trusted · `404` unknown dungeon
 
 ---
 
-### Untrust a member
+### Untrust a player
 
-`DELETE /game/dungeons/{dungeonUuid}/members/{playerUuid}`
+```http
+DELETE /game/dungeons/{dungeonUuid}/members/{playerUuid}
+```
 
-Removes a trusted player. Returns the updated member list.
+Removes a trusted member. Returns the updated member UUID list.
 
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `dungeonUuid` | uuid | The dungeon |
-| `playerUuid` | uuid | Player to untrust |
-
-**Responses**
-
-`200 OK` — array of member UUIDs · `400 Bad Request` — owner is never a member · `404 Not Found` — player wasn't trusted.
+**Responses:** `200` → `string[]` · `400` target is the owner · `404` unknown dungeon / not trusted
 
 ---
 
 ### Create a room
 
-`POST /game/dungeons/{dungeonUuid}/rooms`
-
-Creates a room (always at level 1).
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `dungeonUuid` | uuid | The dungeon |
-
-**Request body** — [`CreateRoomRequest`](#createroomrequest)
-
-```json
-{ "name": "armory" }
+```http
+POST /game/dungeons/{dungeonUuid}/rooms
 ```
 
-**Responses**
+Creates a room at **level 1**. Room names are unique per dungeon.
 
-`200 OK` — [`DungeonRoomDto`](#dungeonroomdto)
+=== "Request"
 
-```json
-{ "name": "armory", "level": 1 }
-```
+    ```json
+    { "name": "vault" }
+    ```
 
-`409 Conflict` — a room with that name already exists · `404 Not Found` — dungeon missing.
+=== "Response `200`"
+
+    [`DungeonRoomDto`](#dungeonroomdto)
+
+    ```json
+    { "name": "vault", "level": 1 }
+    ```
+
+=== "Errors"
+
+    `409` name already exists · `404` unknown dungeon
 
 ---
 
 ### Update a room
 
-`PATCH /game/dungeons/{dungeonUuid}/rooms/{room}`
-
-Updates a room (e.g. level-up). The room name is immutable.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `dungeonUuid` | uuid | The dungeon |
-| `room` | string | Room name |
-
-**Request body** — [`UpdateRoomRequest`](#updateroomrequest)
-
-```json
-{ "level": 3 }
+```http
+PATCH /game/dungeons/{dungeonUuid}/rooms/{room}
 ```
 
-**Responses**
+Updates a room (e.g. level-up). The room **name is immutable**.
 
-`200 OK` — [`DungeonRoomDto`](#dungeonroomdto) · `404 Not Found` — room missing.
+=== "Request"
+
+    ```json
+    { "level": 5 }
+    ```
+
+=== "Response `200`"
+
+    [`DungeonRoomDto`](#dungeonroomdto)
+
+=== "Errors"
+
+    `404` unknown room
 
 ---
 
 ### Open a gate
 
-`POST /game/dungeons/{dungeonUuid}/gate/open`
-
-Starts a gate: sets the gate, replaces its modifiers, and opens the door.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `dungeonUuid` | uuid | The dungeon |
-
-**Request body** — [`OpenGateRequest`](#opengaterequest)
-
-```json
-{ "gate": "fire", "modifiers": ["double-spawn", "no-rest"] }
+```http
+POST /game/dungeons/{dungeonUuid}/gate/open
 ```
 
-**Responses**
+Starts a gate run: opens the door, sets the gate, and replaces its modifiers.
 
-`204 No Content` · `404 Not Found` — dungeon missing.
+=== "Request"
+
+    ```json
+    { "gate": "fire", "modifiers": ["hardcore", "timed"] }
+    ```
+
+=== "Response"
+
+    `204` no content
+
+=== "Errors"
+
+    `404` unknown dungeon
 
 ---
 
 ### Complete a gate
 
-`POST /game/dungeons/{dungeonUuid}/gate/complete`
-
-Completes the active gate: records the completion (increments the count, sets first-completed on first time), clears the gate and modifiers, and closes the door.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `dungeonUuid` | uuid | The dungeon |
-
-**Responses**
-
-`200 OK` — [`DungeonCompletedGateDto`](#dungeoncompletedgatedto)
-
-```json
-{ "gate": "fire", "completionCount": 2, "firstCompletedAt": "2026-06-28T10:05:00Z" }
+```http
+POST /game/dungeons/{dungeonUuid}/gate/complete
 ```
 
-`400 Bad Request` — no active gate · `404 Not Found` — dungeon missing.
+Marks the active gate complete: records the completion (increments count, preserves first-completed time), then clears the gate, removes modifiers, and closes the door.
+
+=== "Response `200`"
+
+    [`DungeonCompletedGateDto`](#dungeoncompletedgatedto)
+
+    ```json
+    { "gate": "fire", "completionCount": 2, "firstCompletedAt": "…" }
+    ```
+
+=== "Errors"
+
+    `400` no active gate · `404` unknown dungeon
 
 ---
 
 ### Open / close the door
 
-`POST /game/dungeons/{dungeonUuid}/door/open`
-`POST /game/dungeons/{dungeonUuid}/door/close`
+```http
+POST /game/dungeons/{dungeonUuid}/door/open
+POST /game/dungeons/{dungeonUuid}/door/close
+```
 
-Toggles the door, keeping the current gate and modifiers.
+Toggles the door only — gate and modifiers are **kept**.
 
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `dungeonUuid` | uuid | The dungeon |
-
-**Responses**
-
-`204 No Content` · `404 Not Found` — dungeon missing.
+**Responses:** `204` no content · `404` unknown dungeon
 
 ---
 
 ## Friends
 
+!!! info "Events"
+    Every mutation publishes a JSON event to the `btg.events` topic exchange **after the DB commit**, so other services can update both parties' menus. See [Events](#events).
+
 ### Send a friend request
 
-`POST /game/players/{uuid}/friend-requests`
-
-Sends a request **by name**. If the target already has a pending request to you, this auto-accepts into a friendship. Publishes `friend.request.sent` or `friend.request.accepted`.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Acting player |
-
-**Request body** — [`SendFriendRequest`](#sendfriendrequest)
-
-```json
-{ "targetName": "Alex" }
+```http
+POST /game/players/{uuid}/friend-requests
 ```
 
-**Responses**
+Sends a request **by name**. If the target already has a pending request to you, this **auto-accepts** into a friendship.
 
-`200 OK` — [`SendFriendResponse`](#sendfriendresponse)
+=== "Request"
 
-```json
-{ "result": "REQUESTED" }
-```
+    ```json
+    { "targetName": "Alex" }
+    ```
 
-`result` is `REQUESTED` (request created) or `FRIENDED` (auto-accepted).
+=== "Response `200`"
 
-`400 Bad Request` — friending yourself · `404 Not Found` — target name unknown · `409 Conflict` — already friends, or a request was already sent.
+    [`SendFriendResponse`](#sendfriendresponse) — `REQUESTED`, or `FRIENDED` on mutual auto-accept
+
+    ```json
+    { "result": "REQUESTED" }
+    ```
+
+=== "Errors"
+
+    `400` befriending yourself · `404` unknown name · `409` already friends / request already sent
+
+→ emits `friend.request.sent`, or `friend.request.accepted` on auto-accept.
 
 ---
 
 ### List outgoing requests
 
-`GET /game/players/{uuid}/friend-requests/outgoing`
-
-Requests you've sent, including each target's name.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Acting player |
-
-**Responses**
-
-`200 OK` — array of [`FriendRequestDto`](#friendrequestdto)
-
-```json
-[{ "playerUuid": "33333333-3333-3333-3333-333333333333", "playerName": "Alex" }]
+```http
+GET /game/players/{uuid}/friend-requests/outgoing
 ```
+
+Requests you've sent.
+
+**Responses:** `200` → array of [`FriendRequestDto`](#friendrequestdto) (the *receiver*)
 
 ---
 
 ### List incoming requests
 
-`GET /game/players/{uuid}/friend-requests/incoming`
+```http
+GET /game/players/{uuid}/friend-requests/incoming
+```
 
-Requests you've received, including each sender's name.
+Requests you've received.
 
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Acting player |
-
-**Responses**
-
-`200 OK` — array of [`FriendRequestDto`](#friendrequestdto).
+**Responses:** `200` → array of [`FriendRequestDto`](#friendrequestdto) (the *sender*)
 
 ---
 
 ### Cancel a request
 
-`DELETE /game/players/{uuid}/friend-requests/outgoing/{targetUuid}`
+```http
+DELETE /game/players/{uuid}/friend-requests/outgoing/{targetUuid}
+```
 
-Cancels a request you sent. Publishes `friend.request.cancelled`.
+Withdraws a request you sent.
 
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Acting player (sender) |
-| `targetUuid` | uuid | The request's receiver |
-
-**Responses**
-
-`204 No Content` · `404 Not Found` — no such outgoing request.
+**Responses:** `204` · `404` no such outgoing request — emits `friend.request.cancelled`
 
 ---
 
 ### Accept a request
 
-`POST /game/players/{uuid}/friend-requests/incoming/{senderUuid}/accept`
+```http
+POST /game/players/{uuid}/friend-requests/incoming/{senderUuid}/accept
+```
 
-Accepts an incoming request, creating the friendship. Publishes `friend.request.accepted`.
+Accepts an incoming request, creating the friendship.
 
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Acting player (receiver) |
-| `senderUuid` | uuid | The request's sender |
-
-**Responses**
-
-`204 No Content` · `404 Not Found` — no such incoming request.
+**Responses:** `204` · `404` no such incoming request — emits `friend.request.accepted`
 
 ---
 
 ### Deny a request
 
-`POST /game/players/{uuid}/friend-requests/incoming/{senderUuid}/deny`
+```http
+POST /game/players/{uuid}/friend-requests/incoming/{senderUuid}/deny
+```
 
-Denies an incoming request. Publishes `friend.request.denied`.
+Rejects an incoming request without befriending.
 
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Acting player (receiver) |
-| `senderUuid` | uuid | The request's sender |
-
-**Responses**
-
-`204 No Content` · `404 Not Found` — no such incoming request.
+**Responses:** `204` · `404` no such incoming request — emits `friend.request.denied`
 
 ---
 
 ### List friends
 
-`GET /game/players/{uuid}/friends`
-
-Your friends, with the time each friendship was established.
-
-**Path parameters**
-
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Acting player |
-
-**Responses**
-
-`200 OK` — array of [`FriendDto`](#frienddto)
-
-```json
-[{ "uuid": "33333333-3333-3333-3333-333333333333", "name": "Alex", "friendsSince": "2026-06-28T10:10:00Z" }]
+```http
+GET /game/players/{uuid}/friends
 ```
+
+**Responses:** `200` → array of [`FriendDto`](#frienddto) (uuid, name, `friendsSince`)
 
 ---
 
 ### Unfriend
 
-`DELETE /game/players/{uuid}/friends/{friendUuid}`
+```http
+DELETE /game/players/{uuid}/friends/{friendUuid}
+```
 
-Removes a friendship. Publishes `friendship.removed`.
+Removes an existing friendship.
 
-**Path parameters**
+**Responses:** `204` · `404` not friends — emits `friendship.removed`
 
-| Name | Type | Description |
-|---|---|---|
-| `uuid` | uuid | Acting player |
-| `friendUuid` | uuid | The friend to remove |
+---
 
-**Responses**
+## Collections
 
-`204 No Content` · `404 Not Found` — not friends.
+Player progression against the static [collection catalog](../data-model/#collections). A progress row exists only once tracked (amount ≠ 0).
+
+### Summary
+
+```http
+GET /game/players/{playerUuid}/collections/summary
+```
+
+Global discovered-vs-total counts.
+
+=== "Response `200`"
+
+    [`CollectionSummaryDto`](#collectionsummarydto)
+
+    ```json
+    { "discovered": 1, "total": 3 }
+    ```
+
+---
+
+### List categories
+
+```http
+GET /game/players/{playerUuid}/collections/categories
+```
+
+All categories with per-category totals and the player's discovered count, ordered by `display_order`.
+
+=== "Response `200`"
+
+    array of [`CollectionCategoryDto`](#collectioncategorydto)
+
+    ```json
+    [ { "id": "resource", "name": "Resources", "description": "…",
+        "icon": "…", "total": 2, "discovered": 1 } ]
+    ```
+
+---
+
+### List collections in a category
+
+```http
+GET /game/players/{playerUuid}/collections/categories/{categoryId}
+```
+
+Every collection in the category with the player's `amount` (0 if untracked) and its levels, ordered by `display_order`.
+
+=== "Response `200`"
+
+    array of [`CollectionDto`](#collectiondto)
+
+    ```json
+    [ {
+      "key": "resource.coal", "name": "Coal", "description": "…", "icon": "…",
+      "amount": 12,
+      "levels": [ { "level": 1, "requiredAmount": 10, "reward": "…" } ]
+    } ]
+    ```
+
+=== "Errors"
+
+    `404` unknown category
+
+---
+
+### Track progress
+
+```http
+POST /game/players/{playerUuid}/collections
+```
+
+Adds an amount to a collection (creating the row on first track). The key is validated against the catalog. Returns the new total.
+
+=== "Request"
+
+    ```json
+    { "key": "resource.coal", "amount": 3 }
+    ```
+
+=== "Response `200`"
+
+    [`TrackCollectionResponse`](#trackcollectionresponse)
+
+    ```json
+    { "amount": 8 }
+    ```
+
+=== "Errors"
+
+    `400` amount ≤ 0 · `404` unknown collection key
+
+---
+
+## Events
+
+Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JSON; each carries both players (uuid + name) so consumers can render without a lookup.
+
+| Routing key | Payload |
+|---|---|
+| `friend.request.sent` | sender, receiver |
+| `friend.request.cancelled` | sender, receiver |
+| `friend.request.accepted` | sender, receiver, `friendsSince` |
+| `friend.request.denied` | sender, receiver |
+| `friendship.removed` | remover, removed |
 
 ---
 
 ## Schemas
 
-### PlayerJoinRequest
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `name` | string | no | Current Minecraft name |
+### PlayerJoinResponse
+| Field | Type | Notes |
+|---|---|---|
+| `player` | [PlayerDto](#playerdto) | |
+| `activePunishments` | [ActivePunishmentDto](#activepunishmentdto)[] | empty if none |
 
 ### PlayerDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `uuid` | uuid | no | |
-| `name` | string | yes | Cached current name |
-| `firstSeen` | date-time | no | |
-| `lastSeen` | date-time | no | |
-| `playtime` | int64 | no | Milliseconds |
-
-### PlayerJoinResponse
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `player` | [PlayerDto](#playerdto) | no | |
-| `activePunishments` | [ActivePunishmentDto](#activepunishmentdto)[] | no | Empty if none |
+| Field | Type | Notes |
+|---|---|---|
+| `uuid` | UUID | |
+| `name` | string | |
+| `firstSeen` | timestamp | |
+| `lastSeen` | timestamp | |
+| `playtime` | long | milliseconds |
 
 ### ActivePunishmentDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `type` | enum `BAN` \| `MUTE` | no | |
-| `reason` | string | no | |
-| `expiresAt` | date-time | yes | `null` = permanent |
+| Field | Type | Notes |
+|---|---|---|
+| `type` | enum | `BAN` \| `MUTE` |
+| `reason` | string | |
+| `expiresAt` | timestamp? | `null` = permanent |
 
 ### PlaytimeResponse
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `playtime` | int64 | no | Milliseconds, accurate as of now |
+| Field | Type | Notes |
+|---|---|---|
+| `playtime` | long | milliseconds |
 
 ### DungeonDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `uuid` | uuid | no | |
-| `ownerUuid` | uuid | no | |
-| `doorOpen` | boolean | no | |
-| `gate` | string | yes | Active gate, `null` if none |
-| `gateModifiers` | string[] | no | Modifiers on the active gate |
-| `members` | uuid[] | no | Trusted players |
-| `rooms` | [DungeonRoomDto](#dungeonroomdto)[] | no | |
-| `citizens` | [DungeonCitizenDto](#dungeoncitizendto)[] | no | |
-| `completedGates` | [DungeonCompletedGateDto](#dungeoncompletedgatedto)[] | no | |
+| Field | Type | Notes |
+|---|---|---|
+| `uuid` | UUID | |
+| `ownerUuid` | UUID | |
+| `doorOpen` | boolean | |
+| `gate` | string? | `null` when no active gate |
+| `gateModifiers` | string[] | set |
+| `members` | UUID[] | trusted players |
+| `rooms` | [DungeonRoomDto](#dungeonroomdto)[] | |
+| `citizens` | [DungeonCitizenDto](#dungeoncitizendto)[] | |
+| `completedGates` | [DungeonCompletedGateDto](#dungeoncompletedgatedto)[] | |
 
 ### DungeonSummaryDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `uuid` | uuid | no | |
-| `ownerUuid` | uuid | no | |
-| `ownerName` | string | yes | |
+| Field | Type | Notes |
+|---|---|---|
+| `uuid` | UUID | |
+| `ownerUuid` | UUID | |
+| `ownerName` | string? | may be temporarily unknown |
 
 ### DungeonRoomDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `name` | string | no | |
-| `level` | int | no | |
+| Field | Type | Notes |
+|---|---|---|
+| `name` | string | immutable |
+| `level` | int | defaults to 1 |
 
 ### DungeonCitizenDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `name` | string | no | NPC identifier (will expand) |
+| Field | Type | Notes |
+|---|---|---|
+| `name` | string | |
 
 ### DungeonCompletedGateDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `gate` | string | no | |
-| `completionCount` | int64 | no | Times completed |
-| `firstCompletedAt` | date-time | no | First completion |
-
-### CreateRoomRequest
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `name` | string | no | Room name (unique per dungeon) |
-
-### UpdateRoomRequest
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `level` | int | no | New level |
-
-### OpenGateRequest
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `gate` | string | no | Gate identifier |
-| `modifiers` | string[] | no | 0..n modifiers (defaults to empty) |
-
-### SendFriendRequest
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `targetName` | string | no | Name of the player to friend |
+| Field | Type | Notes |
+|---|---|---|
+| `gate` | string | |
+| `completionCount` | long | |
+| `firstCompletedAt` | timestamp | preserved across re-completions |
 
 ### SendFriendResponse
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `result` | enum `REQUESTED` \| `FRIENDED` | no | Whether a request was created or auto-accepted |
+| Field | Type | Notes |
+|---|---|---|
+| `result` | enum | `REQUESTED` \| `FRIENDED` |
 
 ### FriendRequestDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `playerUuid` | uuid | no | The other party |
-| `playerName` | string | yes | |
+| Field | Type | Notes |
+|---|---|---|
+| `playerUuid` | UUID | the other party |
+| `playerName` | string? | may be temporarily unknown |
 
 ### FriendDto
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `uuid` | uuid | no | |
-| `name` | string | yes | |
-| `friendsSince` | date-time | no | |
+| Field | Type | Notes |
+|---|---|---|
+| `uuid` | UUID | |
+| `name` | string? | may be temporarily unknown |
+| `friendsSince` | timestamp | |
 
-### ApiError
-| Field | Type | Nullable | Description |
-|---|---|---|---|
-| `status` | int | no | HTTP status code |
-| `message` | string | yes | Human-readable detail |
+### CollectionSummaryDto
+| Field | Type | Notes |
+|---|---|---|
+| `discovered` | int | collections with amount ≠ 0 |
+| `total` | int | total valid collections |
 
----
+### CollectionCategoryDto
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | |
+| `name` | string | |
+| `description` | string | |
+| `icon` | string | |
+| `total` | int | collections in category |
+| `discovered` | int | discovered by player |
 
-## Published events
+### CollectionDto
+| Field | Type | Notes |
+|---|---|---|
+| `key` | string | |
+| `name` | string | |
+| `description` | string | |
+| `icon` | string | |
+| `amount` | long | 0 if untracked |
+| `levels` | [CollectionLevelDto](#collectionleveldto)[] | 0+ |
 
-Friend mutations publish JSON to the `btg.events` topic exchange **after commit**. Each event carries both players (uuid + name); `accepted` also carries `friendsSince`.
+### CollectionLevelDto
+| Field | Type | Notes |
+|---|---|---|
+| `level` | int | |
+| `requiredAmount` | long | amount to unlock |
+| `reward` | string | reward description |
 
-| Routing key | Event |
-|---|---|
-| `friend.request.sent` | `FriendRequestSentEvent` |
-| `friend.request.cancelled` | `FriendRequestCancelledEvent` |
-| `friend.request.accepted` | `FriendRequestAcceptedEvent` |
-| `friend.request.denied` | `FriendRequestDeniedEvent` |
-| `friendship.removed` | `FriendshipRemovedEvent` |
+### TrackCollectionResponse
+| Field | Type | Notes |
+|---|---|---|
+| `amount` | long | new total after tracking |
