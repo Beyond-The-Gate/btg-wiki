@@ -8,6 +8,7 @@ Bind a queue with a routing-key pattern to receive a category:
 |---|---|
 | `friend.#` | all friend events |
 | `moderation.#` | all moderation events |
+| `verification.code` | the in-game verification code delivery |
 | `#` | everything |
 
 ---
@@ -33,6 +34,16 @@ Bind a queue with a routing-key pattern to receive a category:
 | `moderation.unban` | [`ModerationUnbanEvent`](#moderationunbanevent) |
 | `moderation.unmute` | [`ModerationUnmuteEvent`](#moderationunmuteevent) |
 | `moderation.kick` | [`ModerationKickEvent`](#moderationkickevent) |
+
+---
+
+## :material-shield-key: Verification codes
+
+Published when a web account needs an in-game code (registration, resend, or password reset). Consumed by the **proxy**, which messages the player if they're online. The code is **plaintext here only** — the database stores just a hash.
+
+| Routing key | Payload |
+|---|---|
+| `verification.code` | [`DeliverCodeEvent`](#delivercodeevent) |
 
 ---
 
@@ -114,3 +125,10 @@ Bind a queue with a routing-key pattern to receive a category:
 | `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
 | `reason` | string? | optional |
 | `at` | timestamp | when kicked |
+
+### DeliverCodeEvent
+| Field | Type | Notes |
+|---|---|---|
+| `playerUuid` | UUID | recipient |
+| `code` | string | 6-digit, plaintext, 10-minute validity |
+| `purpose` | enum | `ACCOUNT_ACTIVATION` \| `PASSWORD_RESET` |
