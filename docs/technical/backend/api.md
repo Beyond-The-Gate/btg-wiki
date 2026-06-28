@@ -1,4 +1,4 @@
-# API Reference
+# API Layer
 
 !!! warning "Authentication is not yet enforced"
     A temporary permit-all configuration is active in development. Do **not** deploy publicly until role-based security (`ROLE_SERVICE` / `ROLE_PLAYER`) is in place.
