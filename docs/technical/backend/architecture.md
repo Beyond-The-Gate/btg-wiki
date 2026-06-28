@@ -59,7 +59,7 @@ flowchart LR
 
 </div>
 
-## :material-folder-tree: Package layout
+## :material-folder-multiple: Package layout
 
 ```
 eu/beyondthegate/backend/
