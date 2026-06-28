@@ -4,7 +4,7 @@ The central service of Beyond the Gate — the single source of truth for player
 
 It is consumed by the **Velocity proxy** and **Paper servers** over `/game/**` and events, and the **website** over `/web/**`.
 
-## Read on:
+## :material-book-open-page-variant: Read on:
 
 - **[Architecture](architecture.md)** — stack, modules, layers, conventions
 - **[Data Model](data-model.md)** — diagram
