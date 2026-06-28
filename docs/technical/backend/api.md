@@ -609,7 +609,7 @@ Full moderation log for the player, newest first, with the moderator's current n
 
 ## :material-trophy: Collections
 
-Player progression against the static [collection catalog](../data-model/#collections). A progress row exists only once tracked (amount ≠ 0).
+Player progression against the static collection catalog. A progress row exists only once tracked (amount ≠ 0).
 
 ### Summary
 
