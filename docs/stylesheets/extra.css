@@ -1,34 +1,43 @@
-/* Light mode */
-[data-md-color-scheme="default"] {
-  --md-primary-fg-color: #00b8d4;
-  --md-primary-fg-color--light: #5ddef7;
-  --md-primary-fg-color--dark: #0097b2;
-  --md-accent-fg-color: #ff9e00;
-}
-
-/* Dark mode */
 [data-md-color-scheme="slate"] {
-  --md-primary-fg-color: #00c2e0;
-  --md-primary-fg-color--light: #5ddef7;
-  --md-primary-fg-color--dark: #0097b2;
-  --md-accent-fg-color: #ffb733;
+  /* black surfaces */
+  --md-default-bg-color: #0d0d0d;
+  --md-default-fg-color: #e6e6e6;
+  --md-default-fg-color--light: #b3b3b3;
+  --md-default-fg-color--lighter: #808080;
+  --md-default-fg-color--lightest: #2a2a2a;
+  --md-code-bg-color: #161616;
+
+  /* orange brand */
+  --md-primary-fg-color: #ff7a00;
+  --md-primary-fg-color--light: #ff9a33;
+  --md-primary-fg-color--dark: #cc6200;
+
+  /* gold highlight */
+  --md-accent-fg-color: #ffd000;
+  --md-typeset-a-color: #ff7a00;
 }
 
-/* Aqua gradient header for a bit of brand identity */
+/* Black header + footer (keep light text/icons) */
 .md-header,
-.md-tabs {
-  background-image: linear-gradient(135deg, #00b8d4 0%, #0097b2 100%);
+.md-footer {
+  background-color: #000;
 }
 
-/* Gold links + hover */
+/* Links: orange, gold on hover */
 .md-typeset a {
-  color: var(--md-primary-fg-color--dark);
+  color: var(--md-primary-fg-color);
 }
 .md-typeset a:hover {
   color: var(--md-accent-fg-color);
 }
 
-/* Card polish: rounded, subtle lift on hover */
+/* Text selection in gold */
+::selection {
+  background: var(--md-accent-fg-color);
+  color: #000;
+}
+
+/* Cards: rounded, gold lift on hover */
 .md-typeset .grid.cards > ul > li {
   border-radius: 0.7rem;
   border: 1px solid var(--md-default-fg-color--lightest);
@@ -38,11 +47,17 @@
 .md-typeset .grid.cards > ul > li:hover {
   transform: translateY(-3px);
   border-color: var(--md-accent-fg-color);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
 }
 
-/* Brand buttons */
+/* Primary buttons: orange with dark text, gold on hover */
 .md-typeset .md-button--primary {
   background-color: var(--md-primary-fg-color);
   border-color: var(--md-primary-fg-color);
+  color: #0d0d0d;
+}
+.md-typeset .md-button--primary:hover {
+  background-color: var(--md-accent-fg-color);
+  border-color: var(--md-accent-fg-color);
+  color: #0d0d0d;
 }
