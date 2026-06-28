@@ -8,4 +8,5 @@ It is consumed by the **Velocity proxy** and **Paper servers** over `/game/**` a
 
 - **[Architecture](architecture.md)** — stack, modules, layers, conventions
 - **[Data Model](data-model.md)** — diagram
-- **[API Layer](api.md)** — endpoints, error model, events
+- **[API Layer](api.md)** — endpoints, error model, schemas
+- **[Events](events.md)** — exchange, routing keys, payloads
