@@ -88,4 +88,9 @@ nav:
       - systems/index.md
   - Technical:
       - technical/index.md
-      - Backend: technical/backend.md
+      - Backend:
+          - technical/backend/index.md
+          - Architecture: technical/backend/architecture.md
+          - Data Model: technical/backend/data-model.md
+          - API Layer: technical/backend/api.md
+          - Logical Flows: technical/backend/flows.md
