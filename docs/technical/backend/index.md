@@ -10,3 +10,4 @@ It is consumed by the **Velocity proxy** and **Paper servers** over `/game/**` a
 - **[Data Model](data-model.md)** — diagram
 - **[API Layer](api.md)** — endpoints, error model, schemas
 - **[Events](events.md)** — exchange, routing keys, payloads
+- **[Web Login](auth.md)** — login and verification flow
