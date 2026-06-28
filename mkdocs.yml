@@ -93,3 +93,4 @@ nav:
           - Architecture: technical/backend/architecture.md
           - Data Model: technical/backend/data-model.md
           - API Layer: technical/backend/api.md
+          - Events: technical/backend/events.md
