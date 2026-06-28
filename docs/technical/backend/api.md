@@ -24,6 +24,7 @@
     | `200` | OK, body returned |
     | `204` | OK, no body |
     | `400` | Invalid input / business rule violated |
+    | `403` | Forbidden (not allowed to access the target) |
     | `404` | Target not found |
     | `409` | Conflict (duplicate / already in desired state) |
 
@@ -132,26 +133,59 @@ Full dungeon aggregate by its own UUID.
 
 ---
 
-### Get-or-create the player's dungeon
+### Spawn (resolve on join)
 
 ```http
-POST /game/players/{playerUuid}/dungeon
+POST /game/players/{uuid}/spawn
 ```
 
-Returns the player's dungeon, creating it (seeded with a default `main` room) on first call. Idempotent — repeated calls return the same dungeon. `POST` because it may create.
+Resolves where to send the player on join. Returns their **current** dungeon if it's still a valid destination (it exists and they're owner or trusted), otherwise falls back to their **own** dungeon — created and seeded with a default `main` room on the first ever join. Never resolves to nothing.
+
+`created` tells Paper whether it must build and save the world; it stays `true` on every join until Paper confirms via [world-initialized](#mark-world-initialized).
 
 === "Response `200`"
 
-    [`DungeonDto`](#dungeondto)
+    [`SpawnResponse`](#spawnresponse)
 
     ```json
     {
-      "uuid": "…", "ownerUuid": "…", "doorOpen": false, "gate": null,
-      "gateModifiers": [], "members": [],
-      "rooms": [ { "name": "main", "level": 1 } ],
-      "citizens": [], "completedGates": []
+      "dungeon": {
+        "uuid": "…", "ownerUuid": "…", "doorOpen": false,
+        "gate": null, "gateData": null,
+        "gateModifiers": [], "members": [],
+        "rooms": [ { "name": "main", "level": 1 } ],
+        "citizens": [], "completedGates": []
+      },
+      "created": true,
+      "reason": "NOT_EXISTENT"
     }
     ```
+
+    `reason` — `CURRENT` (sent to current dungeon) · `NOT_EXISTENT` (no/deleted current → sent home) · `NOT_TRUSTED` (lost access to current → sent home).
+
+---
+
+### Travel to a dungeon
+
+```http
+POST /game/players/{uuid}/current-dungeon/{dungeonUuid}
+```
+
+Moves the player to an **existing** dungeon they may enter (owner or trusted), updating their current dungeon so a later rejoin returns them here. Never creates.
+
+**Responses:** `200` → [`DungeonDto`](#dungeondto) · `403` not trusted · `404` unknown dungeon
+
+---
+
+### Mark world initialized
+
+```http
+POST /game/dungeons/{dungeonUuid}/world-initialized
+```
+
+Paper callback after it has created and saved the dungeon's world. Idempotent; clears the `created` flag for future spawns.
+
+**Responses:** `204` no content · `404` unknown dungeon
 
 ---
 
@@ -255,12 +289,38 @@ Updates a room (e.g. level-up). The room **name is immutable**.
 POST /game/dungeons/{dungeonUuid}/gate/open
 ```
 
-Starts a gate run: opens the door, sets the gate, and replaces its modifiers.
+Starts a gate run: opens the door, sets the gate, applies its modifiers, and sets the initial gate data (a fresh gate starts with no data if omitted).
 
 === "Request"
 
     ```json
-    { "gate": "fire", "modifiers": ["hardcore", "timed"] }
+    { "gate": "fire", "modifiers": ["hardcore", "timed"], "gateData": "{\"phase\":1}" }
+    ```
+
+    `gateData` is optional, opaque raw JSON.
+
+=== "Response"
+
+    `204` no content
+
+=== "Errors"
+
+    `400` invalid gate data JSON · `404` unknown dungeon
+
+---
+
+### Set gate data
+
+```http
+PUT /game/dungeons/{dungeonUuid}/gate/data
+```
+
+Replaces the opaque gate JSON during a run. The body is raw JSON, stored as-is and returned verbatim on the dungeon aggregate. Cleared automatically when the gate is completed/cleared.
+
+=== "Request"
+
+    ```json
+    { "phase": 2, "bossHp": 1500 }
     ```
 
 === "Response"
@@ -269,7 +329,7 @@ Starts a gate run: opens the door, sets the gate, and replaces its modifiers.
 
 === "Errors"
 
-    `404` unknown dungeon
+    `400` invalid JSON · `404` unknown dungeon
 
 ---
 
@@ -570,6 +630,7 @@ Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JS
 | `ownerUuid` | UUID | |
 | `doorOpen` | boolean | |
 | `gate` | string? | `null` when no active gate |
+| `gateData` | string? | opaque gate JSON; `null` when none |
 | `gateModifiers` | string[] | set |
 | `members` | UUID[] | trusted players |
 | `rooms` | [DungeonRoomDto](#dungeonroomdto)[] | |
@@ -582,6 +643,13 @@ Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JS
 | `uuid` | UUID | |
 | `ownerUuid` | UUID | |
 | `ownerName` | string? | may be temporarily unknown |
+
+### SpawnResponse
+| Field | Type | Notes |
+|---|---|---|
+| `dungeon` | [DungeonDto](#dungeondto) | the resolved target |
+| `created` | boolean | Paper must build + save the world |
+| `reason` | enum | `CURRENT` \| `NOT_EXISTENT` \| `NOT_TRUSTED` |
 
 ### DungeonRoomDto
 | Field | Type | Notes |
