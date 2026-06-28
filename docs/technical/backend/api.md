@@ -10,7 +10,9 @@
 | **Base URL** | `http://<host>:8080` |
 | **Content type** | `application/json` (request & response) |
 | **Timestamps** | ISO-8601, UTC — e.g. `2026-06-28T10:57:48.855Z` |
+| **Durations** | milliseconds (long) |
 | **IDs** | Players & dungeons use UUIDs; collections, gates, rooms, citizens, modifiers use string keys |
+| **`target`** | where noted, a path/body field that accepts **either** a player UUID **or** a current name |
 
 ??? abstract "Error format & status codes"
     Every error shares one shape:
@@ -80,17 +82,17 @@ Adds the elapsed session time to `playtime` and resets `last_seen`. The delta is
 
 ---
 
-### Get playtime by UUID
+### Get playtime
 
 ```http
-GET /game/players/{uuid}/playtime?online={bool}
+GET /game/players/{target}/playtime?online={bool}
 ```
 
-Current playtime in **milliseconds**.
+Current playtime in **milliseconds**, resolved by UUID or current name.
 
 | Param | In | Type | Description |
 |---|---|---|---|
-| `uuid` | path | UUID | Player UUID |
+| `target` | path | string | player UUID or current name |
 | `online` | query | boolean | `true` adds the live, in-progress session; `false` returns the stored value |
 
 === "Response `200`"
@@ -103,19 +105,7 @@ Current playtime in **milliseconds**.
 
 === "Errors"
 
-    `404` — unknown player
-
----
-
-### Get playtime by name
-
-```http
-GET /game/players/by-name/{name}/playtime?online={bool}
-```
-
-Same as above, resolved by current name.
-
-**Responses:** `200` → [`PlaytimeResponse`](#playtimeresponse) · `404` no player holds that name
+    `404` — no player matches the target
 
 ---
 
@@ -371,7 +361,7 @@ Toggles the door only — gate and modifiers are **kept**.
 ## :material-account-group: Friends
 
 !!! info "Events"
-    Every mutation publishes a JSON event to the `btg.events` topic exchange **after the DB commit**, so other services can update both parties' menus. See [Events](#events).
+    Every mutation publishes an event to the `btg.events` exchange **after the DB commit**. See [Events › Friends](#friends_1).
 
 ### Send a friend request
 
@@ -485,6 +475,136 @@ Removes an existing friendship.
 
 ---
 
+## :material-gavel: Moderation
+
+Five actions (ban, mute, kick, unban, unmute) plus active/history queries. **Every** action is appended to the moderation log; **ban/mute** additionally upsert a single active punishment per type (a new one overrides any existing one, active or not). Every successful action publishes an event — see [Events › Moderation](#moderation_1).
+
+!!! note "Common fields"
+    - `target` — player UUID or current name.
+    - `moderatorUuid` — the acting moderator, or `null` for **console/system**.
+    - `durationMillis` — ban/mute length in ms, or `null` for **permanent**. `expires_at` is computed in the DB so `endsAt − startsAt` equals the duration exactly.
+
+### Ban / Mute
+
+```http
+POST /game/moderation/ban
+POST /game/moderation/mute
+```
+
+Issues (or overrides) the punishment and logs it.
+
+=== "Request"
+
+    [`PunishRequest`](#punishrequest)
+
+    ```json
+    { "target": "Steve", "moderatorUuid": "…", "reason": "griefing", "durationMillis": 86400000 }
+    ```
+
+=== "Response `200`"
+
+    [`PunishmentResponse`](#punishmentresponse)
+
+    ```json
+    { "type": "BAN", "reason": "griefing", "startsAt": "…", "endsAt": "…" }
+    ```
+
+=== "Errors"
+
+    `404` unknown target
+
+→ emits `moderation.ban` / `moderation.mute`.
+
+---
+
+### Unban / Unmute
+
+```http
+POST /game/moderation/unban
+POST /game/moderation/unmute
+```
+
+Removes the **active** punishment and logs the lift. Fails if the player isn't currently banned/muted (a leftover expired row doesn't count).
+
+=== "Request"
+
+    [`LiftRequest`](#liftrequest)
+
+    ```json
+    { "target": "Steve", "moderatorUuid": "…" }
+    ```
+
+=== "Response"
+
+    `204` no content
+
+=== "Errors"
+
+    `404` unknown target / not currently banned (muted)
+
+→ emits `moderation.unban` / `moderation.unmute`.
+
+---
+
+### Kick
+
+```http
+POST /game/moderation/kick
+```
+
+Logs a kick. Creates no lasting state (the proxy disconnects the player inline).
+
+=== "Request"
+
+    [`KickRequest`](#kickrequest)
+
+    ```json
+    { "target": "Steve", "moderatorUuid": "…", "reason": "afk" }
+    ```
+
+    `reason` is optional.
+
+=== "Response"
+
+    `204` no content
+
+=== "Errors"
+
+    `404` unknown target
+
+→ emits `moderation.kick`.
+
+---
+
+### Active punishments
+
+```http
+GET /game/moderation/{target}/active
+```
+
+The player's currently active (non-expired) punishments — 0 to 2 entries.
+
+**Responses:** `200` → array of [`ActivePunishmentDto`](#activepunishmentdto) · `404` unknown target
+
+---
+
+### History
+
+```http
+GET /game/moderation/{target}/history?actions={A,B,…}
+```
+
+Full moderation log for the player, newest first, with the moderator's current name.
+
+| Param | In | Type | Description |
+|---|---|---|---|
+| `target` | path | string | player UUID or current name |
+| `actions` | query | enum[] | optional filter; repeat or comma-separate (e.g. `?actions=BAN,KICK`) |
+
+**Responses:** `200` → array of [`ModerationEntryDto`](#moderationentrydto) · `404` unknown target
+
+---
+
 ## :material-trophy: Collections
 
 Player progression against the static [collection catalog](../data-model/#collections). A progress row exists only once tracked (amount ≠ 0).
@@ -582,15 +702,27 @@ Adds an amount to a collection (creating the row on first track). The key is val
 
 ## :material-rabbit: Events
 
-Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JSON; each carries both players (uuid + name) so consumers can render without a lookup.
+All events publish to the **`btg.events`** topic exchange **after the DB commit** — a rolled-back or no-op action (e.g. unbanning a clean player) emits nothing. Payloads are JSON and self-contained: every referenced player is a [`PlayerRef`](#playerref) (uuid + name), so consumers can render without a lookup. Bind a queue with a routing-key pattern to receive a category — `friend.#`, `moderation.#`, or `#` for everything.
+
+### Friends
 
 | Routing key | Payload |
 |---|---|
-| `friend.request.sent` | sender, receiver |
-| `friend.request.cancelled` | sender, receiver |
-| `friend.request.accepted` | sender, receiver, `friendsSince` |
-| `friend.request.denied` | sender, receiver |
-| `friendship.removed` | remover, removed |
+| `friend.request.sent` | [`FriendRequestSentEvent`](#friendrequestsentevent) |
+| `friend.request.cancelled` | [`FriendRequestCancelledEvent`](#friendrequestcancelledevent) |
+| `friend.request.accepted` | [`FriendRequestAcceptedEvent`](#friendrequestacceptedevent) |
+| `friend.request.denied` | [`FriendRequestDeniedEvent`](#friendrequestdeniedevent) |
+| `friendship.removed` | [`FriendshipRemovedEvent`](#friendshipremovedevent) |
+
+### Moderation
+
+| Routing key | Payload |
+|---|---|
+| `moderation.ban` | [`ModerationBanEvent`](#moderationbanevent) |
+| `moderation.mute` | [`ModerationMuteEvent`](#moderationmuteevent) |
+| `moderation.unban` | [`ModerationUnbanEvent`](#moderationunbanevent) |
+| `moderation.unmute` | [`ModerationUnmuteEvent`](#moderationunmuteevent) |
+| `moderation.kick` | [`ModerationKickEvent`](#moderationkickevent) |
 
 ---
 
@@ -610,13 +742,6 @@ Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JS
 | `firstSeen` | timestamp | |
 | `lastSeen` | timestamp | |
 | `playtime` | long | milliseconds |
-
-### ActivePunishmentDto
-| Field | Type | Notes |
-|---|---|---|
-| `type` | enum | `BAN` \| `MUTE` |
-| `reason` | string | |
-| `expiresAt` | timestamp? | `null` = permanent |
 
 ### PlaytimeResponse
 | Field | Type | Notes |
@@ -687,6 +812,53 @@ Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JS
 | `name` | string? | may be temporarily unknown |
 | `friendsSince` | timestamp | |
 
+### PunishRequest
+| Field | Type | Notes |
+|---|---|---|
+| `target` | string | UUID or current name |
+| `moderatorUuid` | UUID? | `null` = console/system |
+| `reason` | string | |
+| `durationMillis` | long? | `null` = permanent |
+
+### LiftRequest
+| Field | Type | Notes |
+|---|---|---|
+| `target` | string | UUID or current name |
+| `moderatorUuid` | UUID? | `null` = console/system |
+
+### KickRequest
+| Field | Type | Notes |
+|---|---|---|
+| `target` | string | UUID or current name |
+| `moderatorUuid` | UUID? | `null` = console/system |
+| `reason` | string? | optional |
+
+### PunishmentResponse
+| Field | Type | Notes |
+|---|---|---|
+| `type` | enum | `BAN` \| `MUTE` |
+| `reason` | string | |
+| `startsAt` | timestamp | when the punishment began |
+| `endsAt` | timestamp? | `null` = permanent |
+
+### ActivePunishmentDto
+| Field | Type | Notes |
+|---|---|---|
+| `type` | enum | `BAN` \| `MUTE` |
+| `reason` | string | |
+| `expiresAt` | timestamp? | `null` = permanent |
+
+### ModerationEntryDto
+| Field | Type | Notes |
+|---|---|---|
+| `id` | long | |
+| `action` | enum | `BAN` \| `MUTE` \| `UNBAN` \| `UNMUTE` \| `KICK` |
+| `reason` | string? | |
+| `moderatorUuid` | UUID? | `null` = console/system |
+| `moderatorName` | string? | `null` = console/system or unknown |
+| `expiresAt` | timestamp? | for ban/mute entries; `null` = permanent / n/a |
+| `createdAt` | timestamp | when the action happened |
+
 ### CollectionSummaryDto
 | Field | Type | Notes |
 |---|---|---|
@@ -724,3 +896,84 @@ Friend mutations publish to the **`btg.events`** topic exchange. Payloads are JS
 | Field | Type | Notes |
 |---|---|---|
 | `amount` | long | new total after tracking |
+
+---
+
+### Event payloads
+
+#### PlayerRef
+| Field | Type | Notes |
+|---|---|---|
+| `uuid` | UUID | |
+| `name` | string? | snapshot at emit time; may be unknown |
+
+#### FriendRequestSentEvent
+| Field | Type | Notes |
+|---|---|---|
+| `sender` | [PlayerRef](#playerref) | |
+| `receiver` | [PlayerRef](#playerref) | |
+
+#### FriendRequestCancelledEvent
+| Field | Type | Notes |
+|---|---|---|
+| `sender` | [PlayerRef](#playerref) | |
+| `receiver` | [PlayerRef](#playerref) | |
+
+#### FriendRequestAcceptedEvent
+| Field | Type | Notes |
+|---|---|---|
+| `sender` | [PlayerRef](#playerref) | original requester |
+| `receiver` | [PlayerRef](#playerref) | accepter |
+| `friendsSince` | timestamp | |
+
+#### FriendRequestDeniedEvent
+| Field | Type | Notes |
+|---|---|---|
+| `sender` | [PlayerRef](#playerref) | |
+| `receiver` | [PlayerRef](#playerref) | |
+
+#### FriendshipRemovedEvent
+| Field | Type | Notes |
+|---|---|---|
+| `remover` | [PlayerRef](#playerref) | who unfriended |
+| `removed` | [PlayerRef](#playerref) | |
+
+#### ModerationBanEvent
+| Field | Type | Notes |
+|---|---|---|
+| `target` | [PlayerRef](#playerref) | banned player |
+| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
+| `reason` | string | |
+| `startsAt` | timestamp | |
+| `endsAt` | timestamp? | `null` = permanent |
+
+#### ModerationMuteEvent
+| Field | Type | Notes |
+|---|---|---|
+| `target` | [PlayerRef](#playerref) | muted player |
+| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
+| `reason` | string | |
+| `startsAt` | timestamp | |
+| `endsAt` | timestamp? | `null` = permanent |
+
+#### ModerationUnbanEvent
+| Field | Type | Notes |
+|---|---|---|
+| `target` | [PlayerRef](#playerref) | |
+| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
+| `at` | timestamp | when lifted |
+
+#### ModerationUnmuteEvent
+| Field | Type | Notes |
+|---|---|---|
+| `target` | [PlayerRef](#playerref) | |
+| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
+| `at` | timestamp | when lifted |
+
+#### ModerationKickEvent
+| Field | Type | Notes |
+|---|---|---|
+| `target` | [PlayerRef](#playerref) | |
+| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
+| `reason` | string? | optional |
+| `at` | timestamp | when kicked |
