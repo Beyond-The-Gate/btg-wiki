@@ -1,20 +1,33 @@
 # Beyond the Gate Wiki
 
-Welcome to the central knowledge base for **Beyond the Gate** — a Minecraft network built around player-owned dungeons, gates, and long-term progression.
+The central knowledge base for **Beyond the Gate** — a Minecraft network built around player-owned dungeons, gates, and long-term progression. Game design vision and technical documentation, interlinked.
 
-This wiki holds both the **game design** vision and the **technical** documentation, interlinked so ideas trace cleanly from concept to implementation.
+[Game Design](game-design/index.md){ .md-button .md-button--primary }
+[Systems](systems/index.md){ .md-button }
+[Technical](technical/index.md){ .md-button }
 
-## Sections
+---
+
+## Explore
 
 <div class="grid cards" markdown>
 
-- :material-gamepad-variant: **[Game Design](game-design/index.md)**
-  The vision: mechanics, progression, world, and player experience.
+- :material-gamepad-variant:{ .lg } **Game Design**
 
-- :material-cog: **[Systems](systems/index.md)**
-  Game design translated into concrete features — what each system does, no code.
+    The vision
 
-- :material-server: **[Technical](technical/index.md)**
-  How it's built: components, services, and architecture.
+    [:octicons-arrow-right-24: Open](game-design/index.md)
+
+- :material-cog:{ .lg } **Systems**
+
+    What each system does, no code.
+
+    [:octicons-arrow-right-24: Open](systems/index.md)
+
+- :material-server:{ .lg } **Technical**
+
+    How it's built
+
+    [:octicons-arrow-right-24: Open](technical/index.md)
 
 </div>
