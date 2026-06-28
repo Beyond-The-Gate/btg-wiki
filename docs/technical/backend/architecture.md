@@ -1,6 +1,6 @@
 # Architecture
 
-## Stack
+## :material-layers: Stack
 
 | Layer | Technology | Notes |
 |---|---|---|
@@ -15,7 +15,7 @@
 | Linting | ktlint | Generated sources excluded |
 | Concurrency | Virtual threads | Enabled |
 
-## Modules
+## :material-package-variant: Modules
 
 A two-module Gradle build:
 
@@ -27,7 +27,7 @@ A two-module Gradle build:
 !!! info "Why the contracts module targets JVM 21"
     The contracts jar is consumed by the Minecraft plugins (Velocity/Paper), which may run on Java 21. Bytecode compiled for 21 runs on 21 **and** 25; the reverse isn't true. So contracts are pinned to 21 while the backend uses 25.
 
-## Layered request flow
+## :material-transit-connection-variant: Layered request flow
 
 ```mermaid
 flowchart LR
@@ -39,12 +39,27 @@ flowchart LR
     relay --> mq[(RabbitMQ)]
 ```
 
-- **Controller** — thin; maps HTTP to service calls, no logic.
-- **Service** — business logic + `@Transactional` boundaries; emits domain events.
-- **Repository** — jOOQ queries only; returns records/projections.
-- **Event Relay** — forwards domain events to RabbitMQ *after the transaction commits*.
+<div class="grid cards" markdown>
 
-## Package layout
+-   :material-flash: __Controller__
+
+    Thin — maps HTTP to service calls. No logic.
+
+-   :material-cogs: __Service__
+
+    Business logic + `@Transactional` boundaries; emits domain events.
+
+-   :material-database-search: __Repository__
+
+    jOOQ queries only; returns records / projections.
+
+-   :material-transit-connection: __Event Relay__
+
+    Forwards domain events to RabbitMQ *after the transaction commits*.
+
+</div>
+
+## :material-folder-tree: Package layout
 
 ```
 eu/beyondthegate/backend/
@@ -57,9 +72,23 @@ eu/beyondthegate/backend/
 └── moderation/
 ```
 
-Rule of thumb: `config/` wires beans, `common/` holds cross-cutting concerns, everything else is a self-contained **feature slice** (controller + service + repository + its own components).
+<div class="grid cards" markdown>
 
-## Schema-first data access
+-   :material-cog: __`config/`__
+
+    Wires beans (security, rabbit).
+
+-   :material-share-variant: __`common/`__
+
+    Cross-cutting concerns (error model + handler).
+
+-   :material-puzzle: __Feature slices__
+
+    Everything else is self-contained: controller + service + repository + its own components.
+
+</div>
+
+## :material-database-arrow-down: Schema-first data access
 
 Flyway is the **single source of truth** for the schema. jOOQ then generates type-safe Kotlin from the live database into a committed source folder.
 
@@ -71,17 +100,24 @@ flowchart LR
     generated --> repos[Repositories]
 ```
 
-Because the generated code is committed, normal builds need no database; codegen only runs when the schema changes.
+!!! tip "No database needed for normal builds"
+    Because the generated code is committed, day-to-day builds need no database — codegen only runs when the schema changes.
 
-## Messaging
+## :material-rabbit: Messaging
 
-A durable **topic exchange** `btg.events`. Services publish JSON events (shared contract types) with routing keys describing what happened. Events are published **after commit** via Spring's `@TransactionalEventListener(AFTER_COMMIT)` so a rollback never leaks an event.
+A durable **topic exchange** `btg.events`. Services publish JSON events (shared contract types) with routing keys describing what happened.
 
-## Error handling
+!!! note "Published after commit"
+    Events fire via Spring's `@TransactionalEventListener(AFTER_COMMIT)`, so a rollback never leaks an event.
 
-Services throw **domain exceptions** (`NotFoundException`, `ConflictException`, `BadRequestException`) with no web coupling. A single `@RestControllerAdvice` maps them to HTTP statuses and a small `ApiError` body. HTTP concerns live in exactly one place.
+## :material-alert-circle: Error handling
 
-## Configuration
+Services throw **domain exceptions** (`NotFoundException`, `ConflictException`, `BadRequestException`) with no web coupling. A single `@RestControllerAdvice` maps them to HTTP statuses and a small `ApiError` body.
+
+!!! abstract "One responsibility, one place"
+    HTTP concerns live in exactly one class — services stay framework-agnostic.
+
+## :material-cog: Configuration
 
 All secrets come from environment variables:
 
@@ -94,12 +130,28 @@ All secrets come from environment variables:
 
 The JVM runs in UTC so timestamps are unambiguous end-to-end.
 
-## Testing
+## :material-test-tube: Testing
 
-- **Unit** (`:backend:test`) — fast, no database.
-- **Integration** (`:backend:integrationTest`) — opt-in, against a dedicated `btg_test` database; truncates between tests for isolation. Tagged `integration` and excluded from the default build.
+<div class="grid cards" markdown>
 
-## Security
+-   :material-lightning-bolt: __Unit__ · `:backend:test`
+
+    Fast, no database.
+
+-   :material-database-check: __Integration__ · `:backend:integrationTest`
+
+    Opt-in, against a dedicated `btg_test` database; truncates between tests for isolation. Tagged `integration` and excluded from the default build.
+
+</div>
+
+## :material-shield-lock: Security
 
 !!! warning "Work in progress"
-    A temporary permit-all config is active. The planned model: `/game/**` authenticated by a durable **API key** (`ROLE_SERVICE`), `/web/**` by **player JWT** (`ROLE_PLAYER`), validated via the OAuth2 Resource Server.
+    A temporary permit-all config is active. The planned model:
+
+    | Surface | Auth | Role |
+    |---|---|---|
+    | `/game/**` | durable API key | `ROLE_SERVICE` |
+    | `/web/**` | player JWT | `ROLE_PLAYER` |
+
+    JWTs validated via the OAuth2 Resource Server.
