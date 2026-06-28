@@ -1,0 +1,17 @@
+:root {
+  --md-primary-fg-color: #00b8d4;
+  --md-primary-fg-color--light: #5ddef7;
+  --md-primary-fg-color--dark: #007c91;
+  --md-accent-fg-color: #ffb300;
+  --md-accent-fg-color--transparent: rgba(255, 179, 0, 0.1);
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #00c2e0;
+  --md-accent-fg-color: #ffc233;
+}
+
+/* Gold links on hover for a bit of brand flavor */
+.md-typeset a:hover {
+  color: var(--md-accent-fg-color);
+}
