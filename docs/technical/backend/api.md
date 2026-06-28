@@ -35,6 +35,180 @@
 
 ---
 
+## :material-key: Web Authentication
+
+Public endpoints under `/web/auth/**` that drive the [website login flow](auth.md). On success, token-returning endpoints respond with an [`AuthTokenResponse`](#authtokenresponse) (JWT + player identity).
+
+### Identify
+
+```http
+POST /web/auth/identify
+```
+
+Step 1. Tells the frontend whether to log in or register.
+
+=== "Request"
+
+    ```json
+    { "username": "Steve" }
+    ```
+
+=== "Response `200`"
+
+    [`IdentifyResponse`](#identifyresponse) — `LOGIN` (an ACTIVE account exists) or `REGISTER` (no account, or PENDING)
+
+    ```json
+    { "state": "REGISTER" }
+    ```
+
+=== "Errors"
+
+    `404` no player matches the username
+
+---
+
+### Login
+
+```http
+POST /web/auth/login
+```
+
+=== "Request"
+
+    ```json
+    { "username": "Steve", "password": "…" }
+    ```
+
+=== "Response `200`"
+
+    [`AuthTokenResponse`](#authtokenresponse)
+
+=== "Errors"
+
+    `401` invalid credentials · `404` unknown username
+
+---
+
+### Register
+
+```http
+POST /web/auth/register
+```
+
+Sets a password (creating/overwriting a PENDING account) and sends an activation code in-game. Rejected if an ACTIVE account already exists.
+
+=== "Request"
+
+    ```json
+    { "username": "Steve", "password": "…" }
+    ```
+
+=== "Response"
+
+    `204` no content — emits `verification.code`
+
+=== "Errors"
+
+    `409` an account already exists · `404` unknown username
+
+---
+
+### Resend activation code
+
+```http
+POST /web/auth/register/resend
+```
+
+Issues a fresh activation code (invalidating the previous one). Requires a PENDING account.
+
+=== "Request"
+
+    ```json
+    { "username": "Steve" }
+    ```
+
+=== "Response"
+
+    `204` no content — emits `verification.code`
+
+=== "Errors"
+
+    `404` no pending registration
+
+---
+
+### Verify
+
+```http
+POST /web/auth/verify
+```
+
+Step 3. Confirms the activation code, activates the account, and issues a token.
+
+=== "Request"
+
+    ```json
+    { "username": "Steve", "code": "123456" }
+    ```
+
+=== "Response `200`"
+
+    [`AuthTokenResponse`](#authtokenresponse)
+
+=== "Errors"
+
+    `400` invalid or expired code · `404` no pending registration
+
+---
+
+### Request password reset
+
+```http
+POST /web/auth/reset/request
+```
+
+Sends a reset code in-game. Requires an ACTIVE account.
+
+=== "Request"
+
+    ```json
+    { "username": "Steve" }
+    ```
+
+=== "Response"
+
+    `204` no content — emits `verification.code`
+
+=== "Errors"
+
+    `404` no account to reset
+
+---
+
+### Confirm password reset
+
+```http
+POST /web/auth/reset/confirm
+```
+
+Verifies the reset code, replaces the password, and issues a token.
+
+=== "Request"
+
+    ```json
+    { "username": "Steve", "code": "123456", "newPassword": "…" }
+    ```
+
+=== "Response `200`"
+
+    [`AuthTokenResponse`](#authtokenresponse)
+
+=== "Errors"
+
+    `400` invalid or expired code · `404` no account to reset
+
+---
+
 ## :material-account: Players
 
 ### Join
@@ -703,6 +877,19 @@ Adds an amount to a collection (creating the row on first track). The key is val
 ---
 
 ## :material-code-braces: Schemas
+
+### IdentifyResponse
+| Field | Type | Notes |
+|---|---|---|
+| `state` | enum | `LOGIN` \| `REGISTER` |
+
+### AuthTokenResponse
+| Field | Type | Notes |
+|---|---|---|
+| `token` | string | signed JWT (`sub`=uuid, `name`, `role=PLAYER`) |
+| `expiresAt` | timestamp | token expiry |
+| `playerUuid` | UUID | |
+| `playerName` | string? | may be temporarily unknown |
 
 ### PlayerJoinResponse
 | Field | Type | Notes |
