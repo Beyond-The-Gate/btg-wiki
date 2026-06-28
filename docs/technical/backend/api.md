@@ -30,6 +30,9 @@
     | `404` | Target not found |
     | `409` | Conflict (duplicate / already in desired state) |
 
+!!! info "Events"
+    Many mutations publish messages to the `btg.events` exchange. See the dedicated **[Events](events.md)** page.
+
 ---
 
 ## :material-account: Players
@@ -360,8 +363,7 @@ Toggles the door only — gate and modifiers are **kept**.
 
 ## :material-account-group: Friends
 
-!!! info "Events"
-    Every mutation publishes an event to the `btg.events` exchange **after the DB commit**. See [Events › Friends](#friends_1).
+Mutations publish to the [`btg.events`](events.md#friends) exchange after the DB commit.
 
 ### Send a friend request
 
@@ -477,7 +479,7 @@ Removes an existing friendship.
 
 ## :material-gavel: Moderation
 
-Five actions (ban, mute, kick, unban, unmute) plus active/history queries. **Every** action is appended to the moderation log; **ban/mute** additionally upsert a single active punishment per type (a new one overrides any existing one, active or not). Every successful action publishes an event — see [Events › Moderation](#moderation_1).
+Five actions (ban, mute, kick, unban, unmute) plus active/history queries. **Every** action is appended to the moderation log; **ban/mute** additionally upsert a single active punishment per type (a new one overrides any existing one, active or not). Every successful action publishes an event — see [Events › Moderation](events.md#moderation).
 
 !!! note "Common fields"
     - `target` — player UUID or current name.
@@ -700,32 +702,6 @@ Adds an amount to a collection (creating the row on first track). The key is val
 
 ---
 
-## :material-rabbit: Events
-
-All events publish to the **`btg.events`** topic exchange **after the DB commit** — a rolled-back or no-op action (e.g. unbanning a clean player) emits nothing. Payloads are JSON and self-contained: every referenced player is a [`PlayerRef`](#playerref) (uuid + name), so consumers can render without a lookup. Bind a queue with a routing-key pattern to receive a category — `friend.#`, `moderation.#`, or `#` for everything.
-
-### Friends
-
-| Routing key | Payload |
-|---|---|
-| `friend.request.sent` | [`FriendRequestSentEvent`](#friendrequestsentevent) |
-| `friend.request.cancelled` | [`FriendRequestCancelledEvent`](#friendrequestcancelledevent) |
-| `friend.request.accepted` | [`FriendRequestAcceptedEvent`](#friendrequestacceptedevent) |
-| `friend.request.denied` | [`FriendRequestDeniedEvent`](#friendrequestdeniedevent) |
-| `friendship.removed` | [`FriendshipRemovedEvent`](#friendshipremovedevent) |
-
-### Moderation
-
-| Routing key | Payload |
-|---|---|
-| `moderation.ban` | [`ModerationBanEvent`](#moderationbanevent) |
-| `moderation.mute` | [`ModerationMuteEvent`](#moderationmuteevent) |
-| `moderation.unban` | [`ModerationUnbanEvent`](#moderationunbanevent) |
-| `moderation.unmute` | [`ModerationUnmuteEvent`](#moderationunmuteevent) |
-| `moderation.kick` | [`ModerationKickEvent`](#moderationkickevent) |
-
----
-
 ## :material-code-braces: Schemas
 
 ### PlayerJoinResponse
@@ -896,84 +872,3 @@ All events publish to the **`btg.events`** topic exchange **after the DB commit*
 | Field | Type | Notes |
 |---|---|---|
 | `amount` | long | new total after tracking |
-
----
-
-### Event payloads
-
-#### PlayerRef
-| Field | Type | Notes |
-|---|---|---|
-| `uuid` | UUID | |
-| `name` | string? | snapshot at emit time; may be unknown |
-
-#### FriendRequestSentEvent
-| Field | Type | Notes |
-|---|---|---|
-| `sender` | [PlayerRef](#playerref) | |
-| `receiver` | [PlayerRef](#playerref) | |
-
-#### FriendRequestCancelledEvent
-| Field | Type | Notes |
-|---|---|---|
-| `sender` | [PlayerRef](#playerref) | |
-| `receiver` | [PlayerRef](#playerref) | |
-
-#### FriendRequestAcceptedEvent
-| Field | Type | Notes |
-|---|---|---|
-| `sender` | [PlayerRef](#playerref) | original requester |
-| `receiver` | [PlayerRef](#playerref) | accepter |
-| `friendsSince` | timestamp | |
-
-#### FriendRequestDeniedEvent
-| Field | Type | Notes |
-|---|---|---|
-| `sender` | [PlayerRef](#playerref) | |
-| `receiver` | [PlayerRef](#playerref) | |
-
-#### FriendshipRemovedEvent
-| Field | Type | Notes |
-|---|---|---|
-| `remover` | [PlayerRef](#playerref) | who unfriended |
-| `removed` | [PlayerRef](#playerref) | |
-
-#### ModerationBanEvent
-| Field | Type | Notes |
-|---|---|---|
-| `target` | [PlayerRef](#playerref) | banned player |
-| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
-| `reason` | string | |
-| `startsAt` | timestamp | |
-| `endsAt` | timestamp? | `null` = permanent |
-
-#### ModerationMuteEvent
-| Field | Type | Notes |
-|---|---|---|
-| `target` | [PlayerRef](#playerref) | muted player |
-| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
-| `reason` | string | |
-| `startsAt` | timestamp | |
-| `endsAt` | timestamp? | `null` = permanent |
-
-#### ModerationUnbanEvent
-| Field | Type | Notes |
-|---|---|---|
-| `target` | [PlayerRef](#playerref) | |
-| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
-| `at` | timestamp | when lifted |
-
-#### ModerationUnmuteEvent
-| Field | Type | Notes |
-|---|---|---|
-| `target` | [PlayerRef](#playerref) | |
-| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
-| `at` | timestamp | when lifted |
-
-#### ModerationKickEvent
-| Field | Type | Notes |
-|---|---|---|
-| `target` | [PlayerRef](#playerref) | |
-| `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
-| `reason` | string? | optional |
-| `at` | timestamp | when kicked |
