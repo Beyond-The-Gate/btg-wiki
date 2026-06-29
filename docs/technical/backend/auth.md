@@ -83,7 +83,6 @@ For an **ACTIVE** account only: request a reset (sends a `PASSWORD_RESET` code i
 
 On successful login, verification, or reset-confirm the backend returns an [`AuthTokenResponse`](api.md#authtokenresponse): a signed JWT (`sub` = player UUID, `name`, `role = PLAYER`) plus its `expiresAt`, `playerUuid`, and `playerName`.
 
-!!! warning "Enforcement pending"
-    Tokens are **minted** today, but validation/enforcement on `/web/**` is part of the upcoming security work. Until then the temp permit-all config is active — do not deploy publicly.
+The website sends this token as `Authorization: Bearer <jwt>` on subsequent calls. It is validated on every request (HMAC signature, issuer, expiry); a player may only act on their own data.
 
 See the endpoint reference in [API › Web Authentication](api.md#web-authentication).
