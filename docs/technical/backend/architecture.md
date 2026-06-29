@@ -11,6 +11,7 @@
 | Migrations | Flyway | Forward-only, owns the schema |
 | Database | PostgreSQL 18 | All timestamps `TIMESTAMPTZ` (UTC) |
 | Messaging | RabbitMQ | Topic exchange `btg.events` |
+| Rate limiting | Bucket4j | In-memory token buckets, per principal |
 | Testing | JUnit 5 + Spring MockMvc | Opt-in integration suite |
 | Linting | ktlint | Generated sources excluded |
 | Concurrency | Virtual threads | Enabled |
@@ -31,7 +32,8 @@ A two-module Gradle build:
 
 ```mermaid
 flowchart LR
-    client[Proxy / Paper] --> controller[Controller]
+    client[Service / Player] --> security[Security filters]
+    security --> controller[Controller]
     controller --> service[Service]
     service --> repo[jOOQ Repository]
     repo --> db[(PostgreSQL)]
@@ -40,6 +42,10 @@ flowchart LR
 ```
 
 <div class="grid cards" markdown>
+
+-   :material-shield-key: __Security filters__
+
+    Authenticate (API key or JWT), authorize per-endpoint, rate limit by principal.
 
 -   :material-flash: __Controller__
 
@@ -64,11 +70,14 @@ flowchart LR
 ```
 eu/beyondthegate/backend/
 ├── BackendApplication.kt
-├── common/        # cross-cutting: error model + handler
-├── config/        # @Configuration beans (security, rabbit)
-├── player/        # controller + service + repository
+├── common/        # cross-cutting: error model + handler, shared helpers
+├── config/        # config properties + bean wiring (rabbit, auth properties)
+├── security/      # filter chain, api-key + jwt auth, rate limiting, authz
+├── auth/          # web login feature (controller/service/repo, jwt issuer)
+├── player/
 ├── dungeon/
-├── friend/        # incl. FriendEventRelay
+├── friend/
+├── collection/
 └── moderation/
 ```
 
@@ -76,11 +85,15 @@ eu/beyondthegate/backend/
 
 -   :material-cog: __`config/`__
 
-    Wires beans (security, rabbit).
+    Config properties and cross-cutting bean wiring (rabbit, auth properties).
+
+-   :material-shield-lock: __`security/`__
+
+    The security mechanism: filter chain, authentication, authorization, rate limiting.
 
 -   :material-share-variant: __`common/`__
 
-    Cross-cutting concerns (error model + handler).
+    Cross-cutting concerns (error model + handler, helpers).
 
 -   :material-puzzle: __Feature slices__
 
@@ -110,9 +123,26 @@ A durable **topic exchange** `btg.events`. Services publish JSON events (shared 
 !!! note "Published after commit"
     Events fire via Spring's `@TransactionalEventListener(AFTER_COMMIT)`, so a rollback never leaks an event.
 
+## :material-shield-lock: Security
+
+Two authentication mechanisms behind one **stateless** filter chain:
+
+| Caller | Credential | Authority |
+|---|---|---|
+| MC servers | `X-Api-Key` (durable) | `ROLE_SERVICE` |
+| Web players | Bearer JWT (short-lived) | `ROLE_PLAYER` |
+
+- **Public:** `/api/v1/auth/**` and `/actuator/health`. Everything else requires authentication.
+- **Authorization is per-endpoint** via `@PreAuthorize` — the path does *not* imply access. Most endpoints require `ROLE_SERVICE`; the collection **reads** allow *service or self* (a player reading their own data).
+- **JWTs** are validated through the OAuth2 Resource Server (HMAC `HS256`, issuer + expiry checked). The token subject is the player UUID.
+- **API keys** are compared in constant time; a match grants `ROLE_SERVICE`.
+
+!!! note "Rate limiting by principal"
+    A filter applies per-principal token buckets: **services are exempt**, **players** are limited per UUID, and **public auth routes** per client IP. Over-limit requests get `429`.
+
 ## :material-alert-circle: Error handling
 
-Services throw **domain exceptions** (`NotFoundException`, `ConflictException`, `BadRequestException`) with no web coupling. A single `@RestControllerAdvice` maps them to HTTP statuses and a small `ApiError` body.
+Services throw **domain exceptions** (`NotFoundException`, `ConflictException`, `BadRequestException`, `ForbiddenException`, `UnauthorizedException`) with no web coupling. A single `@RestControllerAdvice` maps them to HTTP statuses and a small `ApiError` body.
 
 !!! abstract "One responsibility, one place"
     HTTP concerns live in exactly one class — services stay framework-agnostic.
@@ -125,8 +155,8 @@ All secrets come from environment variables:
 |---|---|
 | `DB_PASSWORD` | PostgreSQL password |
 | `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | Broker credentials |
-| `JWT_SECRET` | HMAC secret for player JWTs (planned) |
-| `SERVICE_API_KEY` | Durable key for MC servers (planned) |
+| `JWT_SECRET` | HMAC secret for player JWTs |
+| `SERVICE_API_KEY` | Durable key for MC servers |
 
 The JVM runs in UTC so timestamps are unambiguous end-to-end.
 
@@ -140,18 +170,6 @@ The JVM runs in UTC so timestamps are unambiguous end-to-end.
 
 -   :material-database-check: __Integration__ · `:backend:integrationTest`
 
-    Opt-in, against a dedicated `btg_test` database; truncates between tests for isolation. Tagged `integration` and excluded from the default build.
+    Opt-in, against a dedicated `btg_test` database; truncates between tests for isolation. Runs through the real security chain. Tagged `integration` and excluded from the default build.
 
 </div>
-
-## :material-shield-lock: Security
-
-!!! warning "Work in progress"
-    A temporary permit-all config is active. The planned model:
-
-    | Surface | Auth | Role |
-    |---|---|---|
-    | `/game/**` | durable API key | `ROLE_SERVICE` |
-    | `/web/**` | player JWT | `ROLE_PLAYER` |
-
-    JWTs validated via the OAuth2 Resource Server.
