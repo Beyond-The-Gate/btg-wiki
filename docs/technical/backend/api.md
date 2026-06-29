@@ -1,13 +1,11 @@
 # API Layer
 
-!!! warning "Authentication is not yet enforced"
-    A temporary permit-all configuration is active in development. Do **not** deploy publicly until role-based security (`ROLE_SERVICE` / `ROLE_PLAYER`) is in place.
-
 ## :material-information-outline: Conventions
 
 | | |
 |---|---|
 | **Base URL** | `http://<host>:8080` |
+| **Prefix** | all endpoints live under `/api/v1` |
 | **Content type** | `application/json` (request & response) |
 | **Timestamps** | ISO-8601, UTC — e.g. `2026-06-28T10:57:48.855Z` |
 | **Durations** | milliseconds (long) |
@@ -26,23 +24,39 @@
     | `200` | OK, body returned |
     | `204` | OK, no body |
     | `400` | Invalid input / business rule violated |
-    | `403` | Forbidden (not allowed to access the target) |
+    | `401` | Missing or invalid credentials |
+    | `403` | Authenticated, but not allowed |
     | `404` | Target not found |
     | `409` | Conflict (duplicate / already in desired state) |
+    | `429` | Rate limit exceeded |
 
 !!! info "Events"
     Many mutations publish messages to the `btg.events` exchange. See the dedicated **[Events](events.md)** page.
+
+## :material-shield-key: Authentication & authorization
+
+Two mechanisms behind one stateless filter chain:
+
+| Caller | Header | Authority |
+|---|---|---|
+| MC servers | `X-Api-Key: <key>` | `ROLE_SERVICE` |
+| Web players | `Authorization: Bearer <jwt>` | `ROLE_PLAYER` |
+
+- **Public** (no auth): all `/api/v1/auth/**` and `/actuator/health`.
+- **Default:** every other endpoint requires `ROLE_SERVICE`.
+- **Exceptions** are marked inline as :material-account-check: **service or self** — a service, **or** the player whose token subject equals the path `{playerUuid}`.
+- Over the rate limit → `429`. Services are exempt; players are limited per UUID; public auth routes per IP.
 
 ---
 
 ## :material-key: Web Authentication
 
-Public endpoints under `/web/auth/**` that drive the [website login flow](auth.md). On success, token-returning endpoints respond with an [`AuthTokenResponse`](#authtokenresponse) (JWT + player identity).
+Public endpoints under `/api/v1/auth/**` that drive the [website login flow](auth.md). On success, token-returning endpoints respond with an [`AuthTokenResponse`](#authtokenresponse) (JWT + player identity).
 
 ### Identify
 
 ```http
-POST /web/auth/identify
+POST /api/v1/auth/identify
 ```
 
 Step 1. Tells the frontend whether to log in or register.
@@ -70,7 +84,7 @@ Step 1. Tells the frontend whether to log in or register.
 ### Login
 
 ```http
-POST /web/auth/login
+POST /api/v1/auth/login
 ```
 
 === "Request"
@@ -92,7 +106,7 @@ POST /web/auth/login
 ### Register
 
 ```http
-POST /web/auth/register
+POST /api/v1/auth/register
 ```
 
 Sets a password (creating/overwriting a PENDING account) and sends an activation code in-game. Rejected if an ACTIVE account already exists.
@@ -116,7 +130,7 @@ Sets a password (creating/overwriting a PENDING account) and sends an activation
 ### Resend activation code
 
 ```http
-POST /web/auth/register/resend
+POST /api/v1/auth/register/resend
 ```
 
 Issues a fresh activation code (invalidating the previous one). Requires a PENDING account.
@@ -140,7 +154,7 @@ Issues a fresh activation code (invalidating the previous one). Requires a PENDI
 ### Verify
 
 ```http
-POST /web/auth/verify
+POST /api/v1/auth/verify
 ```
 
 Step 3. Confirms the activation code, activates the account, and issues a token.
@@ -164,7 +178,7 @@ Step 3. Confirms the activation code, activates the account, and issues a token.
 ### Request password reset
 
 ```http
-POST /web/auth/reset/request
+POST /api/v1/auth/reset/request
 ```
 
 Sends a reset code in-game. Requires an ACTIVE account.
@@ -188,7 +202,7 @@ Sends a reset code in-game. Requires an ACTIVE account.
 ### Confirm password reset
 
 ```http
-POST /web/auth/reset/confirm
+POST /api/v1/auth/reset/confirm
 ```
 
 Verifies the reset code, replaces the password, and issues a token.
@@ -214,7 +228,7 @@ Verifies the reset code, replaces the password, and issues a token.
 ### Join
 
 ```http
-POST /game/players/{uuid}/join
+POST /api/v1/players/{uuid}/join
 ```
 
 Upserts the player on connect: creates them on first join, otherwise refreshes name + `last_seen`, reclaiming the name from any stale holder. Returns the player and any active punishments.
@@ -250,7 +264,7 @@ Upserts the player on connect: creates them on first join, otherwise refreshes n
 ### Quit
 
 ```http
-POST /game/players/{uuid}/quit
+POST /api/v1/players/{uuid}/quit
 ```
 
 Adds the elapsed session time to `playtime` and resets `last_seen`. The delta is computed in the database for clock-consistency.
@@ -262,7 +276,7 @@ Adds the elapsed session time to `playtime` and resets `last_seen`. The delta is
 ### Get playtime
 
 ```http
-GET /game/players/{target}/playtime?online={bool}
+GET /api/v1/players/{target}/playtime?online={bool}
 ```
 
 Current playtime in **milliseconds**, resolved by UUID or current name.
@@ -291,7 +305,7 @@ Current playtime in **milliseconds**, resolved by UUID or current name.
 ### Get dungeon
 
 ```http
-GET /game/dungeons/{dungeonUuid}
+GET /api/v1/dungeons/{dungeonUuid}
 ```
 
 Full dungeon aggregate by its own UUID.
@@ -303,7 +317,7 @@ Full dungeon aggregate by its own UUID.
 ### Spawn (resolve on join)
 
 ```http
-POST /game/players/{uuid}/spawn
+POST /api/v1/players/{uuid}/spawn
 ```
 
 Resolves where to send the player on join. Returns their **current** dungeon if it's still a valid destination (it exists and they're owner or trusted), otherwise falls back to their **own** dungeon — created and seeded with a default `main` room on the first ever join. Never resolves to nothing.
@@ -335,7 +349,7 @@ Resolves where to send the player on join. Returns their **current** dungeon if 
 ### Travel to a dungeon
 
 ```http
-POST /game/players/{uuid}/current-dungeon/{dungeonUuid}
+POST /api/v1/players/{uuid}/current-dungeon/{dungeonUuid}
 ```
 
 Moves the player to an **existing** dungeon they may enter (owner or trusted), updating their current dungeon so a later rejoin returns them here. Never creates.
@@ -347,7 +361,7 @@ Moves the player to an **existing** dungeon they may enter (owner or trusted), u
 ### Mark world initialized
 
 ```http
-POST /game/dungeons/{dungeonUuid}/world-initialized
+POST /api/v1/dungeons/{dungeonUuid}/world-initialized
 ```
 
 Paper callback after it has created and saved the dungeon's world. Idempotent; clears the `created` flag for future spawns.
@@ -359,7 +373,7 @@ Paper callback after it has created and saved the dungeon's world. Idempotent; c
 ### List accessible dungeons
 
 ```http
-GET /game/players/{playerUuid}/dungeons
+GET /api/v1/players/{playerUuid}/dungeons
 ```
 
 Summaries of every dungeon the player **owns or is trusted in** (includes their own). Never creates.
@@ -377,7 +391,7 @@ Summaries of every dungeon the player **owns or is trusted in** (includes their 
 ### Trust a player
 
 ```http
-POST /game/dungeons/{dungeonUuid}/members/{playerUuid}
+POST /api/v1/dungeons/{dungeonUuid}/members/{playerUuid}
 ```
 
 Adds a trusted member. Returns the updated member UUID list.
@@ -389,7 +403,7 @@ Adds a trusted member. Returns the updated member UUID list.
 ### Untrust a player
 
 ```http
-DELETE /game/dungeons/{dungeonUuid}/members/{playerUuid}
+DELETE /api/v1/dungeons/{dungeonUuid}/members/{playerUuid}
 ```
 
 Removes a trusted member. Returns the updated member UUID list.
@@ -401,7 +415,7 @@ Removes a trusted member. Returns the updated member UUID list.
 ### Create a room
 
 ```http
-POST /game/dungeons/{dungeonUuid}/rooms
+POST /api/v1/dungeons/{dungeonUuid}/rooms
 ```
 
 Creates a room at **level 1**. Room names are unique per dungeon.
@@ -429,7 +443,7 @@ Creates a room at **level 1**. Room names are unique per dungeon.
 ### Update a room
 
 ```http
-PATCH /game/dungeons/{dungeonUuid}/rooms/{room}
+PATCH /api/v1/dungeons/{dungeonUuid}/rooms/{room}
 ```
 
 Updates a room (e.g. level-up). The room **name is immutable**.
@@ -453,7 +467,7 @@ Updates a room (e.g. level-up). The room **name is immutable**.
 ### Open a gate
 
 ```http
-POST /game/dungeons/{dungeonUuid}/gate/open
+POST /api/v1/dungeons/{dungeonUuid}/gate/open
 ```
 
 Starts a gate run: opens the door, sets the gate, applies its modifiers, and sets the initial gate data (a fresh gate starts with no data if omitted).
@@ -479,7 +493,7 @@ Starts a gate run: opens the door, sets the gate, applies its modifiers, and set
 ### Set gate data
 
 ```http
-PUT /game/dungeons/{dungeonUuid}/gate/data
+PUT /api/v1/dungeons/{dungeonUuid}/gate/data
 ```
 
 Replaces the opaque gate JSON during a run. The body is raw JSON, stored as-is and returned verbatim on the dungeon aggregate. Cleared automatically when the gate is completed/cleared.
@@ -503,7 +517,7 @@ Replaces the opaque gate JSON during a run. The body is raw JSON, stored as-is a
 ### Complete a gate
 
 ```http
-POST /game/dungeons/{dungeonUuid}/gate/complete
+POST /api/v1/dungeons/{dungeonUuid}/gate/complete
 ```
 
 Marks the active gate complete: records the completion (increments count, preserves first-completed time), then clears the gate, removes modifiers, and closes the door.
@@ -525,8 +539,8 @@ Marks the active gate complete: records the completion (increments count, preser
 ### Open / close the door
 
 ```http
-POST /game/dungeons/{dungeonUuid}/door/open
-POST /game/dungeons/{dungeonUuid}/door/close
+POST /api/v1/dungeons/{dungeonUuid}/door/open
+POST /api/v1/dungeons/{dungeonUuid}/door/close
 ```
 
 Toggles the door only — gate and modifiers are **kept**.
@@ -542,7 +556,7 @@ Mutations publish to the [`btg.events`](events.md#friends) exchange after the DB
 ### Send a friend request
 
 ```http
-POST /game/players/{uuid}/friend-requests
+POST /api/v1/players/{uuid}/friend-requests
 ```
 
 Sends a request **by name**. If the target already has a pending request to you, this **auto-accepts** into a friendship.
@@ -572,7 +586,7 @@ Sends a request **by name**. If the target already has a pending request to you,
 ### List outgoing requests
 
 ```http
-GET /game/players/{uuid}/friend-requests/outgoing
+GET /api/v1/players/{uuid}/friend-requests/outgoing
 ```
 
 Requests you've sent.
@@ -584,7 +598,7 @@ Requests you've sent.
 ### List incoming requests
 
 ```http
-GET /game/players/{uuid}/friend-requests/incoming
+GET /api/v1/players/{uuid}/friend-requests/incoming
 ```
 
 Requests you've received.
@@ -596,7 +610,7 @@ Requests you've received.
 ### Cancel a request
 
 ```http
-DELETE /game/players/{uuid}/friend-requests/outgoing/{targetUuid}
+DELETE /api/v1/players/{uuid}/friend-requests/outgoing/{targetUuid}
 ```
 
 Withdraws a request you sent.
@@ -608,7 +622,7 @@ Withdraws a request you sent.
 ### Accept a request
 
 ```http
-POST /game/players/{uuid}/friend-requests/incoming/{senderUuid}/accept
+POST /api/v1/players/{uuid}/friend-requests/incoming/{senderUuid}/accept
 ```
 
 Accepts an incoming request, creating the friendship.
@@ -620,7 +634,7 @@ Accepts an incoming request, creating the friendship.
 ### Deny a request
 
 ```http
-POST /game/players/{uuid}/friend-requests/incoming/{senderUuid}/deny
+POST /api/v1/players/{uuid}/friend-requests/incoming/{senderUuid}/deny
 ```
 
 Rejects an incoming request without befriending.
@@ -632,7 +646,7 @@ Rejects an incoming request without befriending.
 ### List friends
 
 ```http
-GET /game/players/{uuid}/friends
+GET /api/v1/players/{uuid}/friends
 ```
 
 **Responses:** `200` → array of [`FriendDto`](#frienddto) (uuid, name, `friendsSince`)
@@ -642,7 +656,7 @@ GET /game/players/{uuid}/friends
 ### Unfriend
 
 ```http
-DELETE /game/players/{uuid}/friends/{friendUuid}
+DELETE /api/v1/players/{uuid}/friends/{friendUuid}
 ```
 
 Removes an existing friendship.
@@ -663,8 +677,8 @@ Five actions (ban, mute, kick, unban, unmute) plus active/history queries. **Eve
 ### Ban / Mute
 
 ```http
-POST /game/moderation/ban
-POST /game/moderation/mute
+POST /api/v1/moderation/ban
+POST /api/v1/moderation/mute
 ```
 
 Issues (or overrides) the punishment and logs it.
@@ -696,8 +710,8 @@ Issues (or overrides) the punishment and logs it.
 ### Unban / Unmute
 
 ```http
-POST /game/moderation/unban
-POST /game/moderation/unmute
+POST /api/v1/moderation/unban
+POST /api/v1/moderation/unmute
 ```
 
 Removes the **active** punishment and logs the lift. Fails if the player isn't currently banned/muted (a leftover expired row doesn't count).
@@ -725,7 +739,7 @@ Removes the **active** punishment and logs the lift. Fails if the player isn't c
 ### Kick
 
 ```http
-POST /game/moderation/kick
+POST /api/v1/moderation/kick
 ```
 
 Logs a kick. Creates no lasting state (the proxy disconnects the player inline).
@@ -755,7 +769,7 @@ Logs a kick. Creates no lasting state (the proxy disconnects the player inline).
 ### Active punishments
 
 ```http
-GET /game/moderation/{target}/active
+GET /api/v1/moderation/{target}/active
 ```
 
 The player's currently active (non-expired) punishments — 0 to 2 entries.
@@ -767,7 +781,7 @@ The player's currently active (non-expired) punishments — 0 to 2 entries.
 ### History
 
 ```http
-GET /game/moderation/{target}/history?actions={A,B,…}
+GET /api/v1/moderation/{target}/history?actions={A,B,…}
 ```
 
 Full moderation log for the player, newest first, with the moderator's current name.
@@ -787,8 +801,10 @@ Player progression against the static collection catalog. A progress row exists 
 
 ### Summary
 
+:material-account-check: **service or self**
+
 ```http
-GET /game/players/{playerUuid}/collections/summary
+GET /api/v1/players/{playerUuid}/collections/summary
 ```
 
 Global discovered-vs-total counts.
@@ -805,8 +821,10 @@ Global discovered-vs-total counts.
 
 ### List categories
 
+:material-account-check: **service or self**
+
 ```http
-GET /game/players/{playerUuid}/collections/categories
+GET /api/v1/players/{playerUuid}/collections/categories
 ```
 
 All categories with per-category totals and the player's discovered count, ordered by `display_order`.
@@ -824,8 +842,10 @@ All categories with per-category totals and the player's discovered count, order
 
 ### List collections in a category
 
+:material-account-check: **service or self**
+
 ```http
-GET /game/players/{playerUuid}/collections/categories/{categoryId}
+GET /api/v1/players/{playerUuid}/collections/categories/{categoryId}
 ```
 
 Every collection in the category with the player's `amount` (0 if untracked) and its levels, ordered by `display_order`.
@@ -851,7 +871,7 @@ Every collection in the category with the player's `amount` (0 if untracked) and
 ### Track progress
 
 ```http
-POST /game/players/{playerUuid}/collections
+POST /api/v1/players/{playerUuid}/collections
 ```
 
 Adds an amount to a collection (creating the row on first track). The key is validated against the catalog. Returns the new total.
