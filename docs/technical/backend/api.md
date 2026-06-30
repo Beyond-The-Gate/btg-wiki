@@ -255,6 +255,10 @@ Upserts the player on connect: creates them on first join, otherwise refreshes n
       },
       "activePunishments": [
         { "type": "BAN", "reason": "…", "expiresAt": null }
+      ],
+      "friendUuids": ["…"],
+      "incomingRequests": [
+        { "playerUuid": "…", "playerName": "Alex" }
       ]
     }
     ```
@@ -649,7 +653,25 @@ Rejects an incoming request without befriending.
 GET /api/v1/players/{uuid}/friends
 ```
 
-**Responses:** `200` → array of [`FriendDto`](#frienddto) (uuid, name, `friendsSince`)
+**Responses:** `200` → array of [`FriendDto`](#frienddto) (uuid, name, `friendsSince`, `lastOnline`)
+
+---
+
+### List friend UUIDs
+
+```http
+GET /api/v1/players/{uuid}/friends/uuids
+```
+
+Just the UUIDs of the player's friends — a lightweight list for quick lookups.
+
+=== "Response `200`"
+
+    `UUID[]`
+
+    ```json
+    [ "…", "…" ]
+    ```
 
 ---
 
@@ -916,6 +938,8 @@ Adds an amount to a collection (creating the row on first track). The key is val
 |---|---|---|
 | `player` | [PlayerDto](#playerdto) | |
 | `activePunishments` | [ActivePunishmentDto](#activepunishmentdto)[] | empty if none |
+| `friendUuids` | UUID[] | the player's friends |
+| `incomingRequests` | [FriendRequestDto](#friendrequestdto)[] | open requests received |
 
 ### PlayerDto
 | Field | Type | Notes |
@@ -994,6 +1018,7 @@ Adds an amount to a collection (creating the row on first track). The key is val
 | `uuid` | UUID | |
 | `name` | string? | may be temporarily unknown |
 | `friendsSince` | timestamp | |
+| `lastOnline` | timestamp | from `last_seen`; session start if online, disconnect if offline |
 
 ### PunishRequest
 | Field | Type | Notes |
