@@ -96,3 +96,4 @@ nav:
           - API Layer: technical/backend/api.md
           - Events: technical/backend/events.md
           - Web Login: technical/backend/auth.md
+          - Collection Levels: technical/backend/collection-levels.md
