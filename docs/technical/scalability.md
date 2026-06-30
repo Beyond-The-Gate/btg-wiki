@@ -47,7 +47,7 @@ Current state: a **single** backend instance, **single** Paper server, one proxy
 
 ### :material-check-circle: Velocity proxy — no action needed
 
-Velocity comfortably handles thousands of concurrent connections on a single instance. It is **highly unlikely to ever need horizontal scaling**, so we make no plans for it. If a network ever grew past one proxy, Velocity has its own forwarding/cluster patterns — but that is far outside any realistic horizon here.
+Velocity comfortably handles thousands of concurrent connections on a single instance. It is **highly unlikely to ever need horizontal scaling**, so we make no plans for it.
 
 ### :material-database: PostgreSQL — scales vertically, sufficient
 
@@ -80,7 +80,6 @@ These are the things that would break or weaken **if a second backend instance w
 - **No rotation/revocation per service** — rotating the key means coordinating every service at once.
 - **No attribution** — we can't tell *which* server performed an action.
 - **Single point of compromise** — one leaked key grants full `ROLE_SERVICE`.
-- **Forgeable moderation** — `moderatorUuid` is supplied in the request body by the trusted caller, so a leaked key allows forging *any* moderation action under *any* moderator.
 
 This is a **security hardening** concern more than a throughput one, but it scales poorly as the number of services grows.
 
@@ -113,7 +112,7 @@ Several features assume "everyone is on one server":
 - **Online-name tab completion** for Paper commands — each server only knows its own players; with multiple servers, the online-name list must be **shared across servers** so completion behaves as if everyone is everywhere.
 - More broadly, any "list online players" / presence feature becomes a cross-server concern.
 
-**Fix:** a **shared presence set (Redis)**, updated as players join/leave any server, readable by all. The existing RabbitMQ events could also propagate presence changes.
+**Fix:** a **shared presence set (Redis)**, updated as players join/leave any server, readable by all. The existing RabbitMQ events could also propagate presence changes. In this case this could also be the baseline for an "Online Player API" which replaces the current pattern where some endpoints require passing a boolean "online" to the backend.
 
 ---
 
