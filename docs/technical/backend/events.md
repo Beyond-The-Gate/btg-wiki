@@ -8,6 +8,7 @@ Bind a queue with a routing-key pattern to receive a category:
 |---|---|
 | `friend.#` | all friend events |
 | `moderation.#` | all moderation events |
+| `collection.#` | all collection events |
 | `verification.code` | the in-game verification code delivery |
 | `#` | everything |
 
@@ -34,6 +35,16 @@ Bind a queue with a routing-key pattern to receive a category:
 | `moderation.unban` | [`ModerationUnbanEvent`](#moderationunbanevent) |
 | `moderation.unmute` | [`ModerationUnmuteEvent`](#moderationunmuteevent) |
 | `moderation.kick` | [`ModerationKickEvent`](#moderationkickevent) |
+
+---
+
+## :material-trophy: Collections
+
+Published when a player crosses a collection level threshold — **one level at a time, in order**. The player's current Paper server grants the reward and confirms via the [claim endpoint](api.md#confirm-a-level-claim), which triggers the next level's event. Display consumers (e.g. Discord) read the same event and never confirm. See **[Collection levels](collection-levels.md)** for the full mechanism.
+
+| Routing key | Payload |
+|---|---|
+| `collection.levelup` | [`CollectionLevelUpEvent`](#collectionlevelupevent) |
 
 ---
 
@@ -125,6 +136,18 @@ Published when a web account needs an in-game code (registration, resend, or pas
 | `moderator` | [PlayerRef](#playerref)? | `null` = console/system |
 | `reason` | string? | optional |
 | `at` | timestamp | when kicked |
+
+### CollectionLevelUpEvent
+| Field | Type | Notes |
+|---|---|---|
+| `playerUuid` | UUID | |
+| `playerName` | string? | snapshot at emit time; may be unknown |
+| `collectionKey` | string | |
+| `collectionName` | string | |
+| `collectionDescription` | string | |
+| `collectionIcon` | string | |
+| `level` | int | the newly reached level |
+| `rewardDescription` | string | |
 
 ### DeliverCodeEvent
 | Field | Type | Notes |
