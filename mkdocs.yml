@@ -88,6 +88,7 @@ nav:
       - systems/index.md
   - Technical:
       - technical/index.md
+      - Scalability: technical/scalability.md
       - Backend:
           - technical/backend/index.md
           - Architecture: technical/backend/architecture.md
