@@ -821,6 +821,8 @@ Full moderation log for the player, newest first, with the moderator's current n
 
 Player progression against the static collection catalog. A progress row exists only once tracked (amount ≠ 0).
 
+Crossing a level threshold emits a [`collection.levelup`](events.md#collections) event; rewards are granted by Paper and confirmed back via the claim endpoint. The full mechanism (claim ledger, ordering, exactly-once, recovery) is described in **[Collection levels](collection-levels.md)**.
+
 ### Summary
 
 :material-account-check: **service or self**
@@ -915,6 +917,30 @@ Adds an amount to a collection (creating the row on first track). The key is val
 === "Errors"
 
     `400` amount ≤ 0 · `404` unknown collection key
+
+---
+
+### Confirm a level claim
+
+```http
+POST /api/v1/players/{playerUuid}/collections/{collectionKey}/claims/{level}
+```
+
+Confirms that Paper has granted the reward for `level`, advancing the player's claim ledger. **Idempotent** — only advances when `level` is exactly the next unclaimed level *and* its threshold is reached; duplicate or out-of-order confirms are safe no-ops. Advancing chains the next pending levelup event. See **[Collection levels](collection-levels.md)**.
+
+**Responses:** `204` no content
+
+---
+
+### Reconcile pending levelups
+
+```http
+POST /api/v1/players/{playerUuid}/collections/reconcile
+```
+
+Re-emits the next pending levelup for each of the player's collections. Called by Paper once the player has successfully joined, so any rewards missed while offline — or newly earned after a catalog rebalance — are delivered on the next login.
+
+**Responses:** `204` no content — emits `collection.levelup` per pending collection
 
 ---
 
