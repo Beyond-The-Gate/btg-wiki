@@ -97,3 +97,9 @@ nav:
           - Events: technical/backend/events.md
           - Web Login: technical/backend/auth.md
           - Collection Levels: technical/backend/collection-levels.md
+      - Velocity:
+          - technical/velocity/index.md
+      - Paper:
+          - technical/paper/index.md
+          - Dungeons:
+              - technical/paper/dungeons/index.md
