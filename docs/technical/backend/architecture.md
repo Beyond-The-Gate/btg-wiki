@@ -149,14 +149,7 @@ Services throw **domain exceptions** (`NotFoundException`, `ConflictException`, 
 
 ## :material-cog: Configuration
 
-All secrets come from environment variables:
-
-| Variable | Description |
-|---|---|
-| `DB_PASSWORD` | PostgreSQL password |
-| `RABBITMQ_USER` / `RABBITMQ_PASSWORD` | Broker credentials |
-| `JWT_SECRET` | HMAC secret for player JWTs |
-| `SERVICE_API_KEY` | Durable key for MC servers |
+All secrets come from environment variables, see the `README.md` file for that.
 
 The JVM runs in UTC so timestamps are unambiguous end-to-end.
 
