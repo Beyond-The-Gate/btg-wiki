@@ -78,7 +78,11 @@ eu/beyondthegate/backend/
 ├── dungeon/
 ├── friend/
 ├── collection/
-└── moderation/
+├── moderation/
+├── server/        # multi-server: game-server registry + heartbeats
+├── placement/     # multi-server: which server hosts which dungeon
+├── session/       # multi-server: player presence + join routing
+└── state/         # multi-server: portable player state (inventory/xp/hunger)
 ```
 
 <div class="grid cards" markdown>
