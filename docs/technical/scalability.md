@@ -39,7 +39,7 @@ flowchart TB
     class pg,mq store
 ```
 
-Current state: a **single** backend instance, **single** Paper server, one proxy, backed by PostgreSQL and RabbitMQ. Green = scales freely; amber = scales only after the changes noted below.
+Current state: a **single** backend instance and one proxy, backed by PostgreSQL and RabbitMQ. The backend now coordinates **multiple** Paper dungeon servers (registry, placement, presence, routing) — see [Multiple Paper servers](#multiple-paper-servers). Green = scales freely; amber = scales only after the changes noted below.
 
 ---
 
@@ -95,24 +95,24 @@ This is a **security hardening** concern more than a throughput one, but it scal
 
 ---
 
-## Future: multiple Paper servers
+## Multiple Paper servers
 
-Today there is one Paper server. If gameplay ever needed **multiple Paper instances**, two coordination problems appear that don't exist with one:
+The backend now includes the **coordination layer** for running several Paper dungeon servers — see the [API](backend/api.md#multi-server) and [data model](backend/data-model.md). It is built in **PostgreSQL, not Redis**: because the backend stays a single instance, Postgres is the single coordinator and needs no extra infrastructure.
 
-### Dungeon placement (which server holds which dungeon)
+What exists:
 
-With several Paper servers, the network must know **which server is currently hosting a given dungeon's world**, so players (and visitors via travel) are routed to the right instance.
+- **Server registry** (`game_server`) — servers self-register on boot and heartbeat; liveness is derived from heartbeat freshness, not a stored flag.
+- **Dungeon placement** (`dungeon_placement`) — which server currently hosts a dungeon's world. The primary key on `dungeon_uuid` is a **single-writer lock**: a dungeon is placed on at most one server, and a placement is stolen only from a *dead* server.
+- **Presence** (`player_session`) — one live session per player (server + state + heartbeat); the basis for cross-server "who's online / where", including online-name completion and any future Online Player API.
+- **Portable player state** (`player_state`) — inventory/xp/hunger as a versioned blob with a `held_by` ownership lock, so state moves cleanly between servers on transfer.
+- **Routing** (`/route`) — on join the proxy asks the backend which server to connect to: the live host of the player's dungeon (co-location), else a freshly assigned dungeon server, else **limbo**, else nothing.
 
-This is **coordination state, not persistence** — it's ephemeral "where is X right now" data that's recreated on restart, so it does **not** belong in PostgreSQL. The natural home is a **shared in-memory store (Redis)**: a map of `dungeon → hosting server`, claimed/released as worlds load and unload.
+!!! note "Why PostgreSQL, not Redis"
+    Earlier this page assumed placement/presence would be ephemeral state in Redis. That reasoning only holds if the *backend* is scaled out. Since it isn't, Postgres is simplest and correct — one coordinator, no extra containers. Redis stays the escape hatch only if heartbeat/presence write volume ever demands it.
 
-### Cross-server presence
+### Not yet built: fleet orchestration
 
-Several features assume "everyone is on one server":
-
-- **Online-name tab completion** for Paper commands — each server only knows its own players; with multiple servers, the online-name list must be **shared across servers** so completion behaves as if everyone is everywhere.
-- More broadly, any "list online players" / presence feature becomes a cross-server concern.
-
-**Fix:** a **shared presence set (Redis)**, updated as players join/leave any server, readable by all. The existing RabbitMQ events could also propagate presence changes. In this case this could also be the baseline for an "Online Player API" which replaces the current pattern where some endpoints require passing a boolean "online" to the backend.
+The backend does **not** start or stop Paper containers. It places players onto servers that already exist and announced themselves; scaling the fleet up and down — a reconciliation loop that provisions and drains containers — is the remaining piece.
 
 ---
 
@@ -126,6 +126,6 @@ Several features assume "everyone is on one server":
 | Backend (horizontal) | ⚠️ Single instance | in-memory rate limits | Redis-backed buckets |
 | Service auth | ⚠️ Works, weakly | one shared key | per-service keys + `service_client` |
 | List endpoints | ⚠️ Unbounded | no pagination | limit + cursor |
-| Multiple Paper servers | ❌ Not designed for | no dungeon-placement / presence coordination | Redis placement map + presence set |
+| Multiple Paper servers | ✅ Backend coordination built | fleet orchestration (start/stop) not built | backend-driven container lifecycle |
 
-**Bottom line:** the network runs correctly and efficiently as a **single backend + single Paper** today, and that is intentional. The two recurring enablers for scaling out are **Redis** (rate limits, dungeon placement, presence) and **per-service API keys** (auth hardening). Neither is needed now; both are understood and planned for.
+**Bottom line:** the network runs on a **single backend** (intentionally) that now coordinates **multiple Paper servers** through PostgreSQL — no Redis required, since only the backend would need a shared store and it isn't scaled out. The remaining enablers, only if/when needed, are **Redis** (rate limits, if the backend is ever scaled out) and **per-service API keys** (auth hardening); **fleet orchestration** — auto start/stop of Paper containers — is the next build step.

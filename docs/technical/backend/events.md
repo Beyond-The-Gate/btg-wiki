@@ -10,6 +10,7 @@ Bind a queue with a routing-key pattern to receive a category:
 | `moderation.#` | all moderation events |
 | `collection.#` | all collection events |
 | `verification.code` | the in-game verification code delivery |
+| `session.#` | all session / presence events |
 | `#` | everything |
 
 ---
@@ -45,6 +46,16 @@ Published when a player crosses a collection level threshold — **one level at 
 | Routing key | Payload |
 |---|---|
 | `collection.levelup` | [`CollectionLevelUpEvent`](#collectionlevelupevent) |
+
+---
+
+## :material-transit-connection-variant: Sessions
+
+Emitted by the multi-server routing layer when a newer login takes over a player's session, so the proxy can drop the stale connection.
+
+| Routing key | Payload |
+|---|---|
+| `session.player.evicted` | [`PlayerEvictedEvent`](#playerevictedevent) |
 
 ---
 
@@ -155,3 +166,10 @@ Published when a web account needs an in-game code (registration, resend, or pas
 | `playerUuid` | UUID | recipient |
 | `code` | string | 6-digit, plaintext, 10-minute validity |
 | `purpose` | enum | `ACCOUNT_ACTIVATION` \| `PASSWORD_RESET` |
+
+### PlayerEvictedEvent
+| Field | Type | Notes |
+|---|---|---|
+| `playerUuid` | UUID | the evicted player |
+| `serverId` | UUID? | the server they were on |
+| `reason` | enum | `REPLACED_BY_NEW_LOGIN` |
