@@ -555,7 +555,7 @@ Toggles the door only — gate and modifiers are **kept**.
 
 ## :material-account-group: Friends
 
-Mutations publish to the [`btg.events`](events.md#friends) exchange after the DB commit.
+Mutations publish to the [`btg.events`](events.md#friends) exchange after the DB commit. The `{target}` / `{sender}` path parameters accept **either a UUID or a current name**.
 
 ### Send a friend request
 
@@ -614,7 +614,7 @@ Requests you've received.
 ### Cancel a request
 
 ```http
-DELETE /api/v1/players/{uuid}/friend-requests/outgoing/{targetUuid}
+DELETE /api/v1/players/{uuid}/friend-requests/outgoing/{target}
 ```
 
 Withdraws a request you sent.
@@ -626,7 +626,7 @@ Withdraws a request you sent.
 ### Accept a request
 
 ```http
-POST /api/v1/players/{uuid}/friend-requests/incoming/{senderUuid}/accept
+POST /api/v1/players/{uuid}/friend-requests/incoming/{sender}/accept
 ```
 
 Accepts an incoming request, creating the friendship.
@@ -638,7 +638,7 @@ Accepts an incoming request, creating the friendship.
 ### Deny a request
 
 ```http
-POST /api/v1/players/{uuid}/friend-requests/incoming/{senderUuid}/deny
+POST /api/v1/players/{uuid}/friend-requests/incoming/{sender}/deny
 ```
 
 Rejects an incoming request without befriending.
@@ -678,7 +678,7 @@ Just the UUIDs of the player's friends — a lightweight list for quick lookups.
 ### Unfriend
 
 ```http
-DELETE /api/v1/players/{uuid}/friends/{friendUuid}
+DELETE /api/v1/players/{uuid}/friends/{target}
 ```
 
 Removes an existing friendship.
@@ -821,7 +821,7 @@ Full moderation log for the player, newest first, with the moderator's current n
 
 Player progression against the static collection catalog. A progress row exists only once tracked (amount ≠ 0).
 
-Crossing a level threshold emits a [`collection.levelup`](events.md#collections) event; rewards are granted by Paper and confirmed back via the claim endpoint. The full mechanism (claim ledger, ordering, exactly-once, recovery) is described in **[Collection levels](collection-levels.md)**.
+Crossing a level threshold emits a [collection level-up](events.md#collections) event (`collection.player.levelup`); rewards are granted by Paper and confirmed back via the claim endpoint. The full mechanism (claim ledger, ordering, exactly-once, recovery) is described in **[Collection levels](collection-levels.md)**.
 
 ### Summary
 
@@ -940,7 +940,38 @@ POST /api/v1/players/{playerUuid}/collections/reconcile
 
 Re-emits the next pending levelup for each of the player's collections. Called by Paper once the player has successfully joined, so any rewards missed while offline — or newly earned after a catalog rebalance — are delivered on the next login.
 
-**Responses:** `204` no content — emits `collection.levelup` per pending collection
+**Responses:** `204` no content — emits `collection.player.levelup` per pending collection
+
+---
+
+## :material-treasure-chest: Dungeon Collections
+
+Dungeon-scoped collection progress — the same catalog and mechanics as player collections, but tracked per **dungeon** (catalog entries whose `scope` is `DUNGEON`). Addressable two ways: by the **dungeon's own UUID** (the full API, used by the game server running the dungeon) and, for **reads**, by the **owning player's UUID** (the web menu, which knows the player, not the dungeon — resolves to the player's owned dungeon).
+
+Level-ups emit [`collection.dungeon.levelup`](events.md#collections); the claim/ledger mechanism is identical to player collections — see **[Collection levels](collection-levels.md)**.
+
+### By dungeon UUID
+
+```http
+GET  /api/v1/dungeons/{dungeonUuid}/collections/summary
+GET  /api/v1/dungeons/{dungeonUuid}/collections/categories
+GET  /api/v1/dungeons/{dungeonUuid}/collections/categories/{categoryId}
+POST /api/v1/dungeons/{dungeonUuid}/collections
+POST /api/v1/dungeons/{dungeonUuid}/collections/{collectionKey}/claims/{level}
+POST /api/v1/dungeons/{dungeonUuid}/collections/reconcile
+```
+
+Identical semantics to the [player collection endpoints](#collections) — summary, categories, per-category list, track, confirm-claim, reconcile — scoped to the dungeon. Responses reuse [`CollectionSummaryDto`](#collectionsummarydto), [`CollectionCategoryDto`](#collectioncategorydto), [`CollectionDto`](#collectiondto) and [`TrackCollectionResponse`](#trackcollectionresponse).
+
+### By owning player (reads) · :material-account-check: service or self
+
+```http
+GET /api/v1/players/{playerUuid}/dungeon-collections/summary
+GET /api/v1/players/{playerUuid}/dungeon-collections/categories
+GET /api/v1/players/{playerUuid}/dungeon-collections/categories/{categoryId}
+```
+
+The same three reads, resolved against the **player's owned dungeon**, so the website can show a player their dungeon's collections without knowing the dungeon UUID. `404` if the player owns no dungeon.
 
 ---
 

@@ -43,9 +43,10 @@ Bind a queue with a routing-key pattern to receive a category:
 
 Published when a player crosses a collection level threshold — **one level at a time, in order**. The player's current Paper server grants the reward and confirms via the [claim endpoint](api.md#confirm-a-level-claim), which triggers the next level's event. Display consumers (e.g. Discord) read the same event and never confirm. See **[Collection levels](collection-levels.md)** for the full mechanism.
 
-| Routing key | Payload |
-|---|---|
-| `collection.levelup` | [`CollectionLevelUpEvent`](#collectionlevelupevent) |
+| Routing key | Payload | Scope |
+|---|---|---|
+| `collection.player.levelup` | [`CollectionLevelUpEvent`](#collectionlevelupevent) | player-scoped collections |
+| `collection.dungeon.levelup` | [`DungeonCollectionLevelUpEvent`](#dungeoncollectionlevelupevent) | dungeon-scoped collections |
 
 ---
 
@@ -153,6 +154,19 @@ Published when a web account needs an in-game code (registration, resend, or pas
 |---|---|---|
 | `playerUuid` | UUID | |
 | `playerName` | string? | snapshot at emit time; may be unknown |
+| `collectionKey` | string | |
+| `collectionName` | string | |
+| `collectionDescription` | string | |
+| `collectionIcon` | string | |
+| `level` | int | the newly reached level |
+| `rewardDescription` | string | |
+
+### DungeonCollectionLevelUpEvent
+| Field | Type | Notes |
+|---|---|---|
+| `dungeonUuid` | UUID | the dungeon that levelled up |
+| `ownerUuid` | UUID | dungeon owner |
+| `ownerName` | string? | snapshot at emit time; may be unknown |
 | `collectionKey` | string | |
 | `collectionName` | string | |
 | `collectionDescription` | string | |

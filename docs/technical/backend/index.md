@@ -10,5 +10,6 @@ It is consumed under `/api/v1/**` by the **Velocity proxy** and **Paper servers*
 - **[Data Model](data-model.md)** — diagram
 - **[API Layer](api.md)** — endpoints, auth, error model, schemas
 - **[Events](events.md)** — exchange, routing keys, payloads
+- **[Multi-Server](multi-server.md)** — running many Paper dungeon servers
 - **[Web Login](auth.md)** — login and verification flow
 - **[Collection Levels](collection-levels.md)** - granting rewards in distributed system

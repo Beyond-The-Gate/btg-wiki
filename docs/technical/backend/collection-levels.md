@@ -2,6 +2,9 @@
 
 How collection rewards are detected, granted exactly once, and kept correct across rebalances.
 
+!!! info "Two scopes, one mechanism"
+    Collections exist in two scopes — **player** (`player_collection`) and **dungeon** (`dungeon_collection`), selected by the catalog entry's `scope`. Both use the identical ledger described here (each row has its own `amount` + `claimed_level`); they differ only in what they're keyed by and which event fires: `collection.player.levelup` ([`CollectionLevelUpEvent`](events.md#collectionlevelupevent)) versus `collection.dungeon.levelup` ([`DungeonCollectionLevelUpEvent`](events.md#dungeoncollectionlevelupevent)). The rest of this page is written in terms of `player_collection`; dungeon collections behave the same, keyed by dungeon.
+
 ## The two numbers
 
 Each `player_collection` row holds two independent values:
@@ -34,7 +37,7 @@ sequenceDiagram
     Note over API: async, after commit
     API->>DB: is (claimed_level+1) reached?
     alt yes
-        API->>MQ: publish collection.levelup (level N)
+        API->>MQ: publish scoped levelup (level N)
         MQ->>Paper: consume
         MQ->>Discord: consume (display only)
         Paper->>Paper: grant reward N

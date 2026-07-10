@@ -95,6 +95,7 @@ nav:
           - Data Model: technical/backend/data-model.md
           - API Layer: technical/backend/api.md
           - Events: technical/backend/events.md
+          - Multi-Server: technical/backend/multi-server.md
           - Web Login: technical/backend/auth.md
           - Collection Levels: technical/backend/collection-levels.md
       - Velocity:
