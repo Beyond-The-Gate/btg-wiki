@@ -10,7 +10,8 @@ Bind a queue with a routing-key pattern to receive a category:
 | `moderation.#` | all moderation events |
 | `collection.#` | all collection events |
 | `verification.code` | the in-game verification code delivery |
-| `session.#` | all session / presence events |
+| `player.#` | player presence / transfer commands |
+| `server.#` | dungeon-server lifecycle |
 | `#` | everything |
 
 ---
@@ -50,13 +51,25 @@ Published when a player crosses a collection level threshold — **one level at 
 
 ---
 
-## :material-transit-connection-variant: Sessions
+## :material-transit-connection-variant: Players &amp; routing
 
-Emitted by the multi-server routing layer when a newer login takes over a player's session, so the proxy can drop the stale connection.
+Emitted by the multi-server routing layer. `player.transfer` **orders** the proxy to connect a player to a server (cross-server travel, or unsticking a limbo player); `player.evicted` tells it to drop a stale connection when a newer login takes over.
 
 | Routing key | Payload |
 |---|---|
-| `session.player.evicted` | [`PlayerEvictedEvent`](#playerevictedevent) |
+| `player.transfer` | [`PlayerTransferEvent`](#playertransferevent) |
+| `player.evicted` | [`PlayerEvictedEvent`](#playerevictedevent) |
+
+---
+
+## :material-server-network: Dungeon servers
+
+Emitted as the fleet changes so the proxy adds and drops backends dynamically.
+
+| Routing key | Payload |
+|---|---|
+| `server.registered` | [`ServerRegisteredEvent`](#serverregisteredevent) |
+| `server.unregistered` | [`ServerUnregisteredEvent`](#serverunregisteredevent) |
 
 ---
 
@@ -181,9 +194,28 @@ Published when a web account needs an in-game code (registration, resend, or pas
 | `code` | string | 6-digit, plaintext, 10-minute validity |
 | `purpose` | enum | `ACCOUNT_ACTIVATION` \| `PASSWORD_RESET` |
 
+### PlayerTransferEvent
+| Field | Type | Notes |
+|---|---|---|
+| `playerUuid` | UUID | player to move |
+| `serverName` | string | proxy name of the destination (a dungeon server, or limbo) |
+
 ### PlayerEvictedEvent
 | Field | Type | Notes |
 |---|---|---|
 | `playerUuid` | UUID | the evicted player |
-| `serverId` | UUID? | the server they were on |
+| `serverUuid` | UUID? | the server they were on |
 | `reason` | enum | `REPLACED_BY_NEW_LOGIN` |
+
+### ServerRegisteredEvent
+| Field | Type | Notes |
+|---|---|---|
+| `uuid` | UUID | dungeon server |
+| `name` | string | proxy routing name |
+| `address` | string | host:port |
+
+### ServerUnregisteredEvent
+| Field | Type | Notes |
+|---|---|---|
+| `uuid` | UUID | dungeon server |
+| `name` | string | proxy routing name |

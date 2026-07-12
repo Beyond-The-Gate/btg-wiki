@@ -74,15 +74,14 @@ eu/beyondthegate/backend/
 ├── config/        # config properties + bean wiring (rabbit, auth properties)
 ├── security/      # filter chain, api-key + jwt auth, rate limiting, authz
 ├── auth/          # web login feature (controller/service/repo, jwt issuer)
-├── player/
-├── dungeon/
+├── player/        # + presence, join routing, cross-server transfer
+├── dungeon/       # + host placement (which server holds the world)
 ├── friend/
 ├── collection/
 ├── moderation/
-├── server/        # multi-server: game-server registry + heartbeats
-├── placement/     # multi-server: which server hosts which dungeon
-├── session/       # multi-server: player presence + join routing
-└── state/         # multi-server: portable player state (inventory/xp/hunger)
+├── server/        # multi-server: dungeon-server registry + bulk heartbeat
+├── state/         # multi-server: portable player state (inventory/xp/hunger)
+└── orchestration/ # scaling: Docker orchestrator + scheduled reconciler
 ```
 
 <div class="grid cards" markdown>

@@ -977,7 +977,7 @@ The same three reads, resolved against the **player's owned dungeon**, so the we
 
 ## :material-server-network: Multi-server
 
-Coordination for running several Paper **dungeon servers**. Servers self-register and heartbeat; the backend tracks liveness, decides which server hosts each dungeon, routes joining players, and moves player state between servers. All require `ROLE_SERVICE`. Design rationale: **[Scalability › Multiple Paper servers](../scalability.md#multiple-paper-servers)**.
+Coordination and scaling for several Paper **dungeon servers**. Servers self-register and heartbeat; the backend tracks liveness, decides which server hosts each dungeon, routes players, and moves their state. All require `ROLE_SERVICE`. Concept &amp; flows: **[Multi-Server](multi-server.md)**.
 
 ### Register a server
 
@@ -985,39 +985,45 @@ Coordination for running several Paper **dungeon servers**. Servers self-registe
 POST /api/v1/servers/register
 ```
 
-Idempotent on the self-reported `id` (stable across reboots); refreshes fields and resets liveness.
+Idempotent on the self-reported `uuid` (stable across reboots); refreshes fields, resets liveness, and emits `server.registered`.
 
 === "Request"
 
     ```json
-    { "id": "…", "kind": "DUNGEON", "name": "dungeon-1", "address": "dungeon-1:25565", "capacity": 100 }
+    { "uuid": "…", "name": "dungeon-1", "address": "dungeon-1:25565" }
     ```
-
-    `kind` — `DUNGEON` | `LIMBO`.
 
 === "Response `200`"
 
-    [`ServerDto`](#serverdto)
+    [`DungeonServerDto`](#dungeonserverdto)
 
 ---
 
 ### Heartbeat
 
 ```http
-POST /api/v1/servers/{id}/heartbeat
+POST /api/v1/servers/heartbeat
 ```
 
-Liveness + reported load. A server is *alive* while its last heartbeat is within `btg.multiserver.heartbeat-timeout-seconds`.
+One call per Paper server carrying **all** its connected players, so the backend refreshes every presence (and folds playtime) in one round trip — two SQL statements regardless of player count. `serverUuid` is null for the **limbo** server (its players are marked `QUEUED`).
 
 === "Request"
 
     ```json
-    { "status": "READY", "playerCount": 7, "dungeonCount": 3 }
+    { "serverUuid": "…", "playerCount": 7, "dungeonCount": 3, "players": ["…", "…"] }
     ```
 
-    `status` — `PROVISIONING` | `READY` | `DRAINING` | `STOPPING`.
-
 **Responses:** `204` · `404` unknown server
+
+---
+
+### Unregister a server
+
+```http
+DELETE /api/v1/servers/{uuid}
+```
+
+Graceful deregister on Paper `/stop`: removes the server (cascading its placements/presence) and emits `server.unregistered`. Idempotent. **Responses:** `204`
 
 ---
 
@@ -1027,7 +1033,7 @@ Liveness + reported load. A server is *alive* while its last heartbeat is within
 GET /api/v1/servers
 ```
 
-All registered servers with resolved liveness. **Responses:** `200` → array of [`ServerDto`](#serverdto)
+All registered servers with resolved liveness. **Responses:** `200` → array of [`DungeonServerDto`](#dungeonserverdto)
 
 ---
 
@@ -1037,7 +1043,7 @@ All registered servers with resolved liveness. **Responses:** `200` → array of
 POST /api/v1/players/{uuid}/route
 ```
 
-Called by the **proxy** on join. Resolves the player's dungeon, then returns the server to connect them to: the live host of that dungeon (**co-location**), else a freshly assigned dungeon server, else **limbo**, else nothing. Creates/refreshes the player's session and, on a new login, evicts a prior session on a different server (emits `session.player.evicted`).
+Called by the **proxy** on join. Resolves the player's dungeon, then returns the server to connect them to: the live host of that dungeon (**co-location**), else the least-loaded server **with room** (soft cap `players-per-server`), else **limbo**. Sets presence and, on a new login on a different server, evicts the old one (emits `player.evicted`).
 
 === "Response `200`"
 
@@ -1047,63 +1053,63 @@ Called by the **proxy** on join. Resolves the player's dungeon, then returns the
     { "outcome": "ROUTED", "serverName": "dungeon-1" }
     ```
 
-    `outcome` — `ROUTED` (connect to `serverName`) · `LIMBO` (parked; `serverName` = limbo) · `NO_SERVER` (`serverName` null — hold).
+    `outcome` — `ROUTED` (connect to `serverName`) · `LIMBO` (parked; `serverName` = limbo).
 
 ---
 
-### Session heartbeat / disconnect
+### Travel to a dungeon
 
 ```http
-POST   /api/v1/players/{uuid}/session/heartbeat
-DELETE /api/v1/players/{uuid}/session
+POST /api/v1/players/{uuid}/current-dungeon/{dungeonUuid}
 ```
 
-Keep the presence row fresh, or drop it on leave. **Responses:** `204` · heartbeat `404` if no live session.
+Player-initiated travel. Checks access, resolves the target dungeon's host, and returns where to send them. If that host **differs** from the player's current server the backend emits `player.transfer` (the proxy performs the move); same-server travel returns the same name and Paper teleports locally. **The caller must save + release the player's [state](#player-state) before travelling.**
+
+**Responses:** `200` → [`RouteResponse`](#routeresponse) · `403` not trusted · `404` unknown dungeon
 
 ---
 
-### Dungeon placement
+### Dungeon host (placement)
 
 ```http
-POST   /api/v1/dungeons/{dungeonUuid}/placement/claim
-POST   /api/v1/dungeons/{dungeonUuid}/placement/state
-DELETE /api/v1/dungeons/{dungeonUuid}/placement
-GET    /api/v1/dungeons/{dungeonUuid}/placement
+POST   /api/v1/dungeons/{dungeonUuid}/host/claim
+POST   /api/v1/dungeons/{dungeonUuid}/host/status
+DELETE /api/v1/dungeons/{dungeonUuid}/host
 ```
 
-A server claims the right to host a dungeon's world. `claim` steals **only from a dead holder** — a live holder is returned instead (co-location), never taken over. `state` advances the lifecycle (`LOADING` → `LOADED` → `SAVING` → `UNLOADING`); only the holder may change state or release.
+A server claims the right to host a dungeon's world (`dungeon.server_uuid`). `claim` steals **only from a dead holder** — a live holder is returned instead (co-location). `status` advances the load lifecycle (`LOADING` → `LOADED` → `SAVING` → `UNLOADING`); only the holder may change it or release. The current host also appears on [`DungeonDto`](#dungeondto) (`serverUuid`, `status`).
 
 === "claim / release body"
 
     ```json
-    { "serverId": "…" }
+    { "serverUuid": "…" }
     ```
 
-=== "state body"
+=== "status body"
 
     ```json
-    { "serverId": "…", "state": "LOADED" }
+    { "serverUuid": "…", "status": "LOADED" }
     ```
 
 === "Response"
 
-    `claim` & `GET` → `200` [`PlacementDto`](#placementdto) · `state` & `DELETE` → `204` · `409` not the holder · `404` unknown dungeon / not placed
+    `claim` → `200` [`DungeonHostDto`](#dungeonhostdto) · `status` & `DELETE` → `204` · `409` not the holder · `404` unknown dungeon
 
 ---
 
 ### Player state
 
 ```http
-GET /api/v1/players/{uuid}/state?serverId={id}
+GET /api/v1/players/{uuid}/state?serverUuid={uuid}
 PUT /api/v1/players/{uuid}/state
 ```
 
-The portable inventory/xp/hunger blob, moved between servers on transfer. `GET` **claims** ownership for `serverId` and returns the current version (version `0`, `data` null if never saved). `PUT` saves under an optimistic **version fence** + ownership check: it succeeds only when `expectedVersion` matches the stored version and the caller holds the claim (or the holder is dead); `release: true` drops the claim so another server may load it next.
+The portable inventory/xp/hunger blob, moved between servers on transfer. `GET` **claims** ownership for `serverUuid` and returns the current version (version `0`, `data` null if never saved). `PUT` saves under an optimistic **version fence** + ownership check: it succeeds only when `expectedVersion` matches the stored version and the caller holds the claim (or the holder is dead); `release: true` drops the claim so another server may load it next.
 
 === "PUT request"
 
     ```json
-    { "serverId": "…", "expectedVersion": 1, "data": "{…}", "release": true }
+    { "serverUuid": "…", "expectedVersion": 1, "data": "{…}", "release": true }
     ```
 
 === "Response"
@@ -1299,15 +1305,13 @@ The portable inventory/xp/hunger blob, moved between servers on transfer. `GET` 
 |---|---|---|
 | `amount` | long | new total after tracking |
 
-### ServerDto
+### DungeonServerDto
 | Field | Type | Notes |
 |---|---|---|
-| `id` | UUID | self-reported |
-| `kind` | enum | `DUNGEON` \| `LIMBO` |
+| `uuid` | UUID | self-reported |
 | `name` | string | proxy routing name |
 | `address` | string | host:port |
 | `status` | enum | `PROVISIONING` \| `READY` \| `DRAINING` \| `STOPPING` |
-| `capacity` | int | max players |
 | `playerCount` | int | last reported |
 | `dungeonCount` | int | last reported |
 | `alive` | boolean | heartbeat fresh |
@@ -1315,15 +1319,15 @@ The portable inventory/xp/hunger blob, moved between servers on transfer. `GET` 
 ### RouteResponse
 | Field | Type | Notes |
 |---|---|---|
-| `outcome` | enum | `ROUTED` \| `LIMBO` \| `NO_SERVER` |
-| `serverName` | string? | null only when no server exists |
+| `outcome` | enum | `ROUTED` \| `LIMBO` |
+| `serverName` | string | dungeon server, or limbo |
 
-### PlacementDto
+### DungeonHostDto
 | Field | Type | Notes |
 |---|---|---|
 | `dungeonUuid` | UUID | |
-| `serverId` | UUID | current host |
-| `state` | enum | `LOADING` \| `LOADED` \| `SAVING` \| `UNLOADING` |
+| `serverUuid` | UUID | current host |
+| `status` | enum | `LOADING` \| `LOADED` \| `SAVING` \| `UNLOADING` |
 
 ### PlayerStateDto
 | Field | Type | Notes |

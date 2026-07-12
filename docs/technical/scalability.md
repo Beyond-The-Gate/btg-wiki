@@ -101,18 +101,18 @@ The backend now includes the **coordination layer** for running several Paper du
 
 What exists:
 
-- **Server registry** (`game_server`) — servers self-register on boot and heartbeat; liveness is derived from heartbeat freshness, not a stored flag.
-- **Dungeon placement** (`dungeon_placement`) — which server currently hosts a dungeon's world. The primary key on `dungeon_uuid` is a **single-writer lock**: a dungeon is placed on at most one server, and a placement is stolen only from a *dead* server.
-- **Presence** (`player_session`) — one live session per player (server + state + heartbeat); the basis for cross-server "who's online / where", including online-name completion and any future Online Player API.
+- **Server registry** (`dungeon_server`) — servers self-register on boot and heartbeat; liveness is derived from heartbeat freshness.
+- **Dungeon placement** (`dungeon.server_uuid`) — which server hosts a dungeon's world. One dungeon row → one host is the **single-writer lock**; a host is stolen only from a *dead* server.
+- **Presence** (`player.current_server_uuid` + `player.status`) — where each player is and their state (`OFFLINE`/`QUEUED`/`CONNECTING`/`ONLINE`); the basis for cross-server "who's online / where".
 - **Portable player state** (`player_state`) — inventory/xp/hunger as a versioned blob with a `held_by` ownership lock, so state moves cleanly between servers on transfer.
-- **Routing** (`/route`) — on join the proxy asks the backend which server to connect to: the live host of the player's dungeon (co-location), else a freshly assigned dungeon server, else **limbo**, else nothing.
+- **Routing** (`/route`) — on join the proxy asks the backend which server to connect to: the live host of the player's dungeon (co-location), else the least-loaded server with room, else **limbo**.
 
 !!! note "Why PostgreSQL, not Redis"
     Earlier this page assumed placement/presence would be ephemeral state in Redis. That reasoning only holds if the *backend* is scaled out. Since it isn't, Postgres is simplest and correct — one coordinator, no extra containers. Redis stays the escape hatch only if heartbeat/presence write volume ever demands it.
 
-### Not yet built: fleet orchestration
+### Fleet orchestration
 
-The backend does **not** start or stop Paper containers. It places players onto servers that already exist and announced themselves; scaling the fleet up and down — a reconciliation loop that provisions and drains containers — is the remaining piece.
+The backend **starts and stops dungeon-server containers itself** (`btg.orchestration.enabled`, off by default). A scheduled reconciler scales to `desired = clamp(ceil((players + queued) / players-per-server), min, max)`: it reactivates draining servers before starting new ones, drains the emptiest when over-provisioned, reaps crashed servers, and unsticks limbo players. Containers go through a swappable `ServerOrchestrator` (Docker Engine API today), and `server.registered` / `server.unregistered` events keep the proxy's backend list in sync. See [Multi-Server › Orchestration](backend/multi-server.md#orchestration).
 
 ---
 
@@ -126,6 +126,6 @@ The backend does **not** start or stop Paper containers. It places players onto 
 | Backend (horizontal) | ⚠️ Single instance | in-memory rate limits | Redis-backed buckets |
 | Service auth | ⚠️ Works, weakly | one shared key | per-service keys + `service_client` |
 | List endpoints | ⚠️ Unbounded | no pagination | limit + cursor |
-| Multiple Paper servers | ✅ Backend coordination built | fleet orchestration (start/stop) not built | backend-driven container lifecycle |
+| Multiple Paper servers | ✅ Coordinated &amp; orchestrated | — | Docker today; Swarm/k8s later |
 
-**Bottom line:** the network runs on a **single backend** (intentionally) that now coordinates **multiple Paper servers** through PostgreSQL — no Redis required, since only the backend would need a shared store and it isn't scaled out. The remaining enablers, only if/when needed, are **Redis** (rate limits, if the backend is ever scaled out) and **per-service API keys** (auth hardening); **fleet orchestration** — auto start/stop of Paper containers — is the next build step.
+**Bottom line:** the network runs on a **single backend** (intentionally) that now coordinates **multiple Paper servers** through PostgreSQL — no Redis required, since only the backend would need a shared store and it isn't scaled out. The remaining enablers, only if/when needed, are **Redis** (rate limits, if the backend is ever scaled out) and **per-service API keys** (auth hardening). Fleet **orchestration** — auto start/stop of Paper containers via Docker — is now built.

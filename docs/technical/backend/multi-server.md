@@ -1,20 +1,20 @@
 # Multi-Server
 
-How Beyond the Gate runs **many Paper dungeon servers** behind one proxy, coordinated entirely by the backend. This is the concept; the concrete endpoints are in the [API](api.md#multi-server) and the tables in the [Data Model](data-model.md).
+How Beyond the Gate runs **many Paper dungeon servers** behind one proxy, coordinated — and scaled — by the backend. This is the concept and the key flows; the endpoints are in the [API](api.md#multi-server), the events in [Events](events.md#multi-server), the tables in the [Data Model](data-model.md).
 
-!!! abstract "Scope"
-    This covers the **backend coordination** — registry, placement, presence, portable player state, routing, limbo. Starting and stopping Paper containers (fleet orchestration) is **not built yet**. Bans are enforced by the proxy at join, not here.
+!!! abstract "What the backend does"
+    Registry, placement, presence, portable player state, routing, limbo, **and** orchestration (starting/stopping dungeon-server containers). Bans are enforced by the proxy at join, not here.
 
 ## The problem
 
-One Paper server holding every dungeon world doesn't scale. But a dungeon world is **single-writer** — it can be open on only one server at a time — and players carry **state** (inventory, xp, hunger) that must follow them across servers without being duplicated or lost.
+One Paper server holding every dungeon doesn't scale. But a dungeon world is **single-writer** (open on only one server at a time), and players carry **state** (inventory, xp, hunger) that must follow them across servers without being duplicated or lost.
 
 ## Two invariants
 
-Everything here exists to uphold these, and both are enforced *structurally* in PostgreSQL:
+Both are enforced *structurally* in PostgreSQL:
 
-1. **A dungeon is hosted on at most one server at a time** — enforced by the primary key of `dungeon_placement` (`dungeon_uuid`).
-2. **A player's live state is owned by at most one server at a time** — enforced by `player_state.held_by` plus a monotonic `version` fence.
+1. **A dungeon is hosted on at most one server** — `dungeon.server_uuid` (one dungeon row → one host).
+2. **A player's live state is owned by at most one server** — `player_state.held_by` + a monotonic `version` fence.
 
 ## Topology
 
@@ -23,83 +23,121 @@ flowchart TB
     proxy[Velocity Proxy]
     limbo[Limbo server]
     d1[Dungeon server 1]
-    d2[Dungeon server 2]
     dn[Dungeon server N]
     subgraph backend[Backend · single instance]
-        api[Coordinator]
+        api[Coordinator + reconciler]
     end
     pg[(PostgreSQL)]
+    docker[(Docker Engine)]
 
     proxy -->|/route| api
     proxy --> limbo
     proxy --> d1
-    proxy --> d2
     proxy --> dn
     d1 --> api
-    d2 --> api
     dn --> api
     api --> pg
+    api -->|start/stop| docker
+    api -.->|events| proxy
 ```
 
-Dungeon servers are **stateless and interchangeable** — kill one and the only cost is reloading its worlds and reconnecting its players. They **self-register** on boot and heartbeat, so the backend never needs static per-server config.
+Dungeon servers are **stateless and interchangeable** — they self-register on boot and heartbeat; kill one and the only cost is reloading its worlds and reconnecting its players. **Limbo** is a single always-on server named by config, not a registry row.
 
-## The coordination tables
+## The model (after consolidation)
 
-| Table | Holds | Lock |
-|---|---|---|
-| `game_server` | registry: kind, address, status, capacity, last heartbeat | liveness = fresh heartbeat |
-| `dungeon_placement` | which server hosts a dungeon's world + load state | **PK `dungeon_uuid`** (one host) |
-| `player_session` | one live session per player: server, state, heartbeat | **PK `player_uuid`** (no double login) |
-| `player_state` | portable inventory/xp/hunger blob | `held_by` + `version` |
+Coordination lives **on the entities it describes** — there are no separate placement/session tables:
 
-## Join & routing
+| Table / column | Holds |
+|---|---|
+| `dungeon_server` | registry: name, address, `status` (`READY`/`DRAINING`/…), `player_count`, `dungeon_count`, `last_heartbeat` |
+| `dungeon.server_uuid` + `dungeon.status` | which server hosts the world + its load state (`LOADING`/`LOADED`/`SAVING`/`UNLOADING`) |
+| `player.current_server_uuid` + `player.status` | presence: where the player is + `OFFLINE`/`QUEUED`/`CONNECTING`/`ONLINE` |
+| `player_state` | portable inventory/xp/hunger blob, `held_by` + `version` |
 
-On join the proxy asks the backend one question — *which server?* — and the backend runs the placement decision:
+A server is **alive** while `last_heartbeat` is within `btg.multiserver.heartbeat-timeout-seconds` (30s; Paper beats ~15s).
+
+## Join &amp; routing
+
+On join the proxy asks the backend one question — *which server?* Placement respects a soft cap (`players-per-server`, 50): new placements pick the least-loaded server **with room**; co-location ignores the cap; limbo only when all are full or none exist.
 
 ```mermaid
 flowchart TD
-    join[Player joins] --> route["POST /route"]
+    join[Player joins] --> route["POST /players/{uuid}/route"]
     route --> resolve[Resolve player's dungeon]
     resolve --> live{Already placed<br/>on a live server?}
     live -->|yes| host[Route there · co-location]
-    live -->|no| pick{Ready dungeon server<br/>with capacity?}
-    pick -->|yes| assign[Assign placement · route there]
-    pick -->|no| limbo{Limbo available?}
-    limbo -->|yes| park[Park in limbo · queued]
-    limbo -->|no| none[NO_SERVER · hold]
+    live -->|no| pick{READY server<br/>with room?}
+    pick -->|yes| assign[Assign host · route there]
+    pick -->|no| limbo[Park in limbo · QUEUED]
 ```
 
-Because routing **assigns the placement**, two players entering the same unplaced dungeon at once are guaranteed to land on the **same** server (the placement insert has a single winner). A player is therefore never on a server whose dungeon lives elsewhere.
+Routing **assigns the placement**, so two players entering the same unplaced dungeon at once land on the *same* server. `/route` is synchronous — the proxy connects the player using the returned `serverName`.
 
-## On the Paper server
+## Teleporting between dungeons
 
-Routing guarantees the player's dungeon belongs to *this* server. Paper asks [`POST /spawn`](api.md#spawn-resolve-on-join) for the dungeon and its `created` flag, then:
+`POST /players/{uuid}/current-dungeon/{dungeonUuid}` (travel) resolves the target dungeon's host and returns where to send the player.
 
-| Situation | Action |
-|---|---|
-| world already loaded here | **teleport** |
-| not loaded, world exists (`created = false`) | **load** it → teleport |
-| not loaded, no world yet (`created = true`) | **create** from template → confirm via [`world-initialized`](api.md#mark-world-initialized) → teleport |
+!!! warning "Paper contract"
+    The **source server saves + releases the player's state (`PUT …/state`, `release=true`) *before* calling travel.** This is what makes the handoff safe — the destination always loads the latest released state, fenced by `version`.
 
-Alongside, it pulls the player's inventory via [`GET /state`](api.md#player-state) and, on unload, saves and releases the placement. A dungeon server does nothing but load/create/teleport and sync state — never routing or placement decisions.
+=== "Cross-server"
 
-## Cross-server transfer
+    The target dungeon is hosted elsewhere. The backend emits **`player.transfer(uuid, serverName)`**; the proxy connects the player to the destination, which handles it like a fresh join.
 
-Moving a player between servers is where state can dupe or be lost, because on an internal switch the source's *quit* fires around the destination's *join*.
+    ```mermaid
+    sequenceDiagram
+        participant S1 as Source Paper
+        participant API as Backend
+        participant MQ as RabbitMQ
+        participant Prox as Velocity
+        participant S2 as Dest Paper
+        S1->>API: PUT /state (release)
+        S1->>API: POST /current-dungeon/{d}
+        API->>API: resolveHost -> S2, set presence
+        API->>MQ: player.transfer(uuid, S2)
+        MQ->>Prox: consume
+        Prox->>S2: connect player
+        S2->>API: GET /state (claim) · POST /spawn · host/claim
+        S2->>S2: load world, teleport in
+    ```
 
-!!! tip "The proxy gates the reconnect on the save"
-    The single proxy does not connect the player to the destination until the source has **saved and released** the player's state. Combined with the `version` fence — a stale write (`expectedVersion` ≠ stored) is rejected — the handoff is safe without a distributed lock.
+=== "Same server"
 
-Ownership moves as: `held_by = A` → *A saves + releases* → `held_by = null (vN)` → *B claims on load* → `held_by = B`.
+    The target dungeon is on the server the player is already on. The backend returns the **same** server name and emits **no** transfer event; Paper just **teleports locally** (loading the world via ASP if needed) and re-acquires its state claim. No proxy hop, no handoff.
 
-## Limbo
+=== "No space"
 
-A lightweight, always-on server that catches players with nowhere to go — no ready dungeon server, or a join throttle. It keeps them **connected (queued)** instead of kicking them; the backend releases them onto a real server as capacity frees up.
+    No READY server has room. The backend parks the player in **limbo** (`QUEUED`) and emits `player.transfer(uuid, "limbo")`. The reconciler counts queued players as demand, scales up (or un-drains), and on a later tick **unsticks** them — re-routing to the new server and emitting a fresh `player.transfer`. Nothing stays stuck.
 
-## Not built yet: fleet orchestration
+## Orchestration
 
-The backend places players onto servers that **already exist and registered themselves**. It does not start or stop them. Fleet orchestration — a reconciliation loop that provisions and drains Paper containers by load — is the remaining piece. See [Scalability › Multiple Paper servers](../scalability.md#multiple-paper-servers).
+The backend can start and stop dungeon-server containers itself (`btg.orchestration.enabled`, off by default). A `@Scheduled` **reconciler** runs every `reconcile-interval-millis`:
 
-## Identity & security
+1. **Reap** servers whose heartbeat went stale (crash) — deleting the row cascades placement/presence; emits `server.unregistered`.
+2. **Scale** to `desired = clamp(ceil((serverPlayers + queued) / playersPerServer), min, max)`:
+     - short → **reactivate DRAINING servers before starting** new containers;
+     - over → **drain the emptiest** READY servers (they take no new players and stop once empty);
+     - never starts unless every server is full.
+3. **Stop** drained-empty servers (`server.unregistered`).
+4. **Unstick** queued/limbo players onto servers that now have room.
 
-All servers share one `SERVICE_API_KEY` (`ROLE_SERVICE`); the key **authorizes but does not identify**. A server's identity is its self-reported `id` from registration, trusted because the key already gates the network boundary. Bans are enforced by the proxy at join — `/route` does not re-check them.
+```mermaid
+flowchart LR
+    reap[Reap dead] --> plan[Plan desired vs actual]
+    plan --> act[Un-drain / start / drain]
+    act --> stop[Stop drained-empty]
+    stop --> unstick[Unstick limbo players]
+```
+
+Containers are managed through a swappable `ServerOrchestrator` (**Docker Engine API** today, over the mounted socket; Swarm/k8s later). A started container receives its identity (`BTG_SERVER_UUID/NAME/ADDRESS`) via env and **self-registers**; the backend never pre-creates the row.
+
+!!! note "Proxy stays in sync"
+    Registration and removal emit `server.registered` / `server.unregistered` so Velocity adds and drops backends dynamically as the fleet scales.
+
+## Identity &amp; security
+
+All servers share one `SERVICE_API_KEY` (`ROLE_SERVICE`); the key **authorizes but does not identify**. A server's identity is its self-reported `uuid` from registration, trusted because the key already gates the network boundary.
+
+## What a dungeon server does
+
+Routing guarantees the player's dungeon belongs to *this* server. Paper then: `/spawn` (dungeon + `created`) → load or clone-from-template the world (ASP) → `GET /state` (inventory) → `host/claim` → teleport. On `/stop` it calls `DELETE /servers/{uuid}` for a graceful, instant deregister (no waiting for a missed heartbeat). Nothing player- or world-durable lives on Paper.
