@@ -271,7 +271,7 @@ Upserts the player on connect: creates them on first join, otherwise refreshes n
 POST /api/v1/players/{uuid}/quit
 ```
 
-Adds the elapsed session time to `playtime` and resets `last_seen`. The delta is computed in the database for clock-consistency.
+Folds the elapsed session time into `playtime`, resets `last_seen`, and marks the player offline (clears their live server + status). The delta is computed in the database for clock-consistency.
 
 **Responses:** `204` no content
 
@@ -280,15 +280,14 @@ Adds the elapsed session time to `playtime` and resets `last_seen`. The delta is
 ### Get playtime
 
 ```http
-GET /api/v1/players/{target}/playtime?online={bool}
+GET /api/v1/players/{target}/playtime
 ```
 
-Current playtime in **milliseconds**, resolved by UUID or current name.
+Current stored playtime in **milliseconds**, resolved by UUID or current name. Playtime is kept current by the server heartbeat (folded on every touch) and finalized exactly on quit.
 
 | Param | In | Type | Description |
 |---|---|---|---|
 | `target` | path | string | player UUID or current name |
-| `online` | query | boolean | `true` adds the live, in-progress session; `false` returns the stored value |
 
 === "Response `200`"
 
@@ -347,18 +346,6 @@ Resolves where to send the player on join. Returns their **current** dungeon if 
     ```
 
     `reason` — `CURRENT` (sent to current dungeon) · `NOT_EXISTENT` (no/deleted current → sent home) · `NOT_TRUSTED` (lost access to current → sent home).
-
----
-
-### Travel to a dungeon
-
-```http
-POST /api/v1/players/{uuid}/current-dungeon/{dungeonUuid}
-```
-
-Moves the player to an **existing** dungeon they may enter (owner or trusted), updating their current dungeon so a later rejoin returns them here. Never creates.
-
-**Responses:** `200` → [`DungeonDto`](#dungeondto) · `403` not trusted · `404` unknown dungeon
 
 ---
 
@@ -1053,7 +1040,7 @@ Called by the **proxy** on join. Resolves the player's dungeon, then returns the
     { "outcome": "ROUTED", "serverName": "dungeon-1" }
     ```
 
-    `outcome` — `ROUTED` (connect to `serverName`) · `LIMBO` (parked; `serverName` = limbo).
+    `outcome` — `ROUTED` (connect to `serverName`) · `LIMBO` (parked on limbo) · `NO_SERVER` (no limbo configured; `serverName` null).
 
 ---
 
@@ -1160,6 +1147,8 @@ The portable inventory/xp/hunger blob, moved between servers on transfer. `GET` 
 |---|---|---|
 | `uuid` | UUID | |
 | `ownerUuid` | UUID | |
+| `serverUuid` | UUID? | current host; `null` when not loaded |
+| `status` | enum? | load state `LOADING` \| `LOADED` \| `SAVING` \| `UNLOADING`; `null` when not loaded |
 | `doorOpen` | boolean | |
 | `gate` | string? | `null` when no active gate |
 | `gateData` | string? | opaque gate JSON; `null` when none |
@@ -1218,7 +1207,7 @@ The portable inventory/xp/hunger blob, moved between servers on transfer. `GET` 
 | `uuid` | UUID | |
 | `name` | string? | may be temporarily unknown |
 | `friendsSince` | timestamp | |
-| `lastOnline` | timestamp | from `last_seen`; session start if online, disconnect if offline |
+| `lastOnline` | timestamp | from `last_seen` — last time the player was seen active (heartbeat while online, disconnect while offline) |
 
 ### PunishRequest
 | Field | Type | Notes |
@@ -1319,8 +1308,8 @@ The portable inventory/xp/hunger blob, moved between servers on transfer. `GET` 
 ### RouteResponse
 | Field | Type | Notes |
 |---|---|---|
-| `outcome` | enum | `ROUTED` \| `LIMBO` |
-| `serverName` | string | dungeon server, or limbo |
+| `outcome` | enum | `ROUTED` \| `LIMBO` \| `NO_SERVER` |
+| `serverName` | string? | destination name; `null` only with `NO_SERVER` (reachable only if no limbo is configured — limbo defaults to `limbo`) |
 
 ### DungeonHostDto
 | Field | Type | Notes |
