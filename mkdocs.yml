@@ -104,3 +104,5 @@ nav:
           - technical/paper/index.md
           - Dungeons:
               - technical/paper/dungeons/index.md
+          - Limbo:
+              - technical/paper/limbo/index.md
